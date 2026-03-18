@@ -181,3 +181,167 @@ Unchanged from v0.1.
 
 - Annual contribution growth rate
 - Per-person `--person` filter on the CLI
+
+---
+
+## v0.3
+
+### What's new
+
+- New `POST /drawdown` endpoint — continues each accumulation path through the drawdown phase
+- `POST /simulate` extended to return all 10,000 raw household path values alongside percentiles, enabling path-continuity into drawdown
+- Interactive CLI session — accumulation results printed first, then a prompt loop for exploring withdrawal rates
+- Survival table output — probability of solvency at each age during drawdown
+- Annual income displayed alongside withdrawal rate
+
+---
+
+### Architecture
+
+Two sequential API calls, with Stage 1 output feeding Stage 2:
+
+```
+[Python CLI]
+  │
+  ├─ POST /simulate ──────► [Stage 1: Accumulation MC]
+  │    returns percentiles + raw paths array
+  │
+  └─ POST /drawdown ──────► [Stage 2: Drawdown MC]
+       receives paths array + withdrawal params
+       returns probability of ruin + survival table + percentiles over time
+```
+
+Stage 1 runs once. Stage 2 reruns on each new withdrawal rate without re-running accumulation.
+
+---
+
+### Stage 1 — changes to `POST /simulate`
+
+**Input JSON:** unchanged from v0.2.
+
+**Output JSON:** adds `paths` array to the household object:
+
+```json
+{
+  "numSimulations": 10000,
+  "people": [ ... ],
+  "household": {
+    "yearsToSnapshot": 25,
+    "nominal": { "p10": 0, "p25": 0, "p50": 0, "p75": 0, "p90": 0 },
+    "real":    { "p10": 0, "p25": 0, "p50": 0, "p75": 0, "p90": 0 },
+    "paths":   [425000, 1100000, 780000, ...]
+  }
+}
+```
+
+- `paths` contains all 10,000 nominal household pot values at the snapshot year, one per simulation path, in path index order
+- The CLI passes this array directly to Stage 2; it is not printed to the user
+
+---
+
+### Stage 2 — new `POST /drawdown`
+
+**Input JSON:**
+
+```json
+{
+  "paths": [425000, 1100000, 780000, ...],
+  "withdrawalRate": 0.04,
+  "retirementAge": 65,
+  "toAge": 100
+}
+```
+
+- `paths` — the raw array from Stage 1 (`household.paths`)
+- `withdrawalRate` — annual withdrawal as a fraction of the **pot value at retirement** (classic 4% rule — fixed real amount)
+- `retirementAge` — used to compute age labels in the survival table
+- `toAge` — end of simulation horizon
+
+**Simulation:**
+- For each of the 10,000 paths, continue from `paths[i]` as the starting pot
+- At retirement, fix the annual withdrawal amount: `withdrawalAmount = paths[i] × withdrawalRate`
+- Each subsequent year, inflate `withdrawalAmount` by that year's sampled inflation factor
+- Deduct the inflated withdrawal from the portfolio, then apply the sampled log-normal return
+- First-hit ruin: if the portfolio cannot cover the withdrawal (pot ≤ 0), record the year and stop that path
+- Shared inflation path per simulation (same approach as Stage 1)
+
+**Output JSON:**
+
+```json
+{
+  "numSimulations": 10000,
+  "withdrawalRate": 0.04,
+  "annualIncomeMedian": 31200,
+  "probabilityOfRuin": 0.18,
+  "survivalTable": [
+    { "age": 70, "probabilitySolvent": 0.99 },
+    { "age": 75, "probabilitySolvent": 0.97 },
+    { "age": 80, "probabilitySolvent": 0.91 },
+    { "age": 85, "probabilitySolvent": 0.78 },
+    { "age": 90, "probabilitySolvent": 0.61 },
+    { "age": 95, "probabilitySolvent": 0.44 },
+    { "age": 100, "probabilitySolvent": 0.31 }
+  ],
+  "portfolioPercentiles": {
+    "byAge": [
+      { "age": 66, "nominal": { "p10": 0, "p50": 0, "p90": 0 }, "real": { "p10": 0, "p50": 0, "p90": 0 } }
+    ]
+  }
+}
+```
+
+- `annualIncomeMedian` — median of `paths[i] × withdrawalRate` across all paths, in £ (today's money — the fixed real withdrawal amount at the p50 pot)
+- `probabilityOfRuin` — fraction of paths that hit zero before `toAge`
+- `survivalTable` — percentage of paths still solvent at each 5-year age interval from `retirementAge + 5` to `toAge`
+- `portfolioPercentiles.byAge` — p10/p50/p90 nominal and real portfolio values at each age (drives fan chart in future UI)
+
+---
+
+### CLI — interactive session
+
+**Flow:**
+
+```
+$ python cli/retirement.py --input cli/inputs/example.json
+
+[accumulation results printed as per v0.2]
+
+── Drawdown ─────────────────────────────────────────
+Withdrawal rate % [4.0] (or 'q' to quit): _
+```
+
+After each drawdown result:
+
+```
+Withdrawal rate 4.0% of median pot (£780,000) = £31,200/year
+
+  Age   Probability solvent
+  ───   ───────────────────
+  70    99%
+  75    97%
+  80    91%
+  85    78%
+  90    61%
+  95    44%
+  100   31%
+
+Probability of running out before age 100: 18%
+
+Withdrawal rate % [4.0] (or 'q' to quit): _
+```
+
+**Rules:**
+- Press enter to reuse the previous rate (shown in brackets, defaulting to 4.0 on first prompt)
+- Enter a number (e.g. `3.5`) to use a new rate
+- Enter `q` to exit
+
+**`--json` flag:** if set, prints raw JSON for accumulation only and skips the interactive session.
+
+---
+
+### Known limitations (v0.3)
+
+- Withdrawal is a fixed real amount (inflated each year) set at retirement — no state pension, other income offsets, or spending step-downs
+- No state pension, other income, or spending inputs — deferred to v0.4
+- No tax modelling
+- Annual contribution growth deferred to v0.4

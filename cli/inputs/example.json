@@ -3,7 +3,6 @@
     {
       "name": "Alice",
       "currentAge": 40,
-      "retirementAge": 65,
       "accounts": [
         { "name": "Workplace Pension", "type": "pension", "currentValue": 120000, "monthlyContribution": 400 },
         { "name": "Old SIPP",          "type": "pension", "currentValue": 30000,  "monthlyContribution": 100 },
@@ -13,7 +12,6 @@
     {
       "name": "Bob",
       "currentAge": 38,
-      "retirementAge": 63,
       "accounts": [
         { "name": "Workplace Pension", "type": "pension", "currentValue": 80000,  "monthlyContribution": 300 },
         { "name": "ISA",               "type": "isa",     "currentValue": 20000,  "monthlyContribution": 150 }

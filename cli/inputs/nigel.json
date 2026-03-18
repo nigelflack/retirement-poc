@@ -3,7 +3,6 @@
     {
       "name": "Nigel",
       "currentAge": 52,
-      "retirementAge": 62,
       "accounts": [
         { "name": "Standard Life", "type": "pension", "currentValue": 140000, "monthlyContribution": 800 },
         { "name": "Vanguard SIPP", "type": "pension", "currentValue": 190000,  "monthlyContribution": 1600 },
@@ -13,7 +12,6 @@
     {
       "name": "Mimi",
       "currentAge": 46,
-      "retirementAge": 56,
       "accounts": [
         { "name": "Scottish Widows", "type": "pension", "currentValue": 50000,  "monthlyContribution": 0 },
         { "name": "ISA", "type": "isa", "currentValue": 20000,  "monthlyContribution": 100 }

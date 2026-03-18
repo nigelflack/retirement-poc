@@ -19,3 +19,30 @@ def format_results(results: dict) -> str:
     ]
     lines.extend(_percentile_rows(h["nominal"], h["real"]))
     return "\n".join(lines)
+
+
+def format_drawdown(results: dict) -> str:
+    rate_pct = results["withdrawalRate"] * 100
+    median_income = results["annualIncomeMedian"]
+    p10_income = results["annualIncomeP10"]
+    p90_income = results["annualIncomeP90"]
+    ruin_pct = results["probabilityOfRuin"] * 100
+
+    lines = [
+        f"  Withdrawal rate     : {rate_pct:.1f}%",
+        f"  Annual income       : £{median_income:,.0f} median  "
+        f"(£{p10_income:,.0f} – £{p90_income:,.0f} range)",
+        "",
+        f"  {'Age':<6} {'Probability solvent':>20}",
+        f"  {'─' * 28}",
+    ]
+    for row in results["survivalTable"]:
+        pct = row["probabilitySolvent"] * 100
+        bar_len = int(pct / 5)
+        bar = "█" * bar_len
+        lines.append(f"  {row['age']:<6} {pct:>6.1f}%  {bar}")
+
+    lines.append("")
+    lines.append(f"  Probability of running out before age "
+                 f"{results['survivalTable'][-1]['age']}: {ruin_pct:.1f}%")
+    return "\n".join(lines)

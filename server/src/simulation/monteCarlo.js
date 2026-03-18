@@ -124,8 +124,10 @@ function runSimulation(people, config) {
       yearsToSnapshot: householdYears,
       nominal: percentilesOf(householdNomFinals),
       real: percentilesOf(householdRealFinals),
+      paths: householdNomFinals,
+      realPaths: householdRealFinals,
     },
   };
 }
 
-module.exports = { runSimulation };
+module.exports = { runSimulation, logNormalParams, sampleNormal, percentilesOf };
