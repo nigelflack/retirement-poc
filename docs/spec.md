@@ -217,7 +217,7 @@ Stage 1 runs once. Stage 2 reruns on each new withdrawal rate without re-running
 
 ### Stage 1 — changes to `POST /simulate`
 
-**Input JSON:** unchanged from v0.2.
+**Input JSON:** `retirementAge` removed from v0.2 — now prompted interactively in the CLI session before the simulation runs.
 
 **Output JSON:** adds `paths` array to the household object:
 
@@ -304,38 +304,50 @@ Stage 1 runs once. Stage 2 reruns on each new withdrawal rate without re-running
 ```
 $ python cli/retirement.py --input cli/inputs/example.json
 
-[accumulation results printed as per v0.2]
+── Retirement ages ──────────────────────────────────
+  Retirement age for Alice (currently 40): 65
+  Retirement age for Bob (currently 38): 63
 
-── Drawdown ─────────────────────────────────────────
-Withdrawal rate % [4.0] (or 'q' to quit): _
+[accumulation results printed]
+
+────────────────────────────────────────────────────
+  Drawdown explorer
+  Retirement age : 63
+────────────────────────────────────────────────────
+  Withdrawal rate % [4.0] (or 'q' to quit): _
 ```
 
 After each drawdown result:
 
 ```
-Withdrawal rate 4.0% of median pot (£780,000) = £31,200/year
+  Withdrawal rate     : 4.0%
+  Annual income       : £31,200 median  (£22,000 – £45,000 range)
 
-  Age   Probability solvent
-  ───   ───────────────────
-  70    99%
-  75    97%
-  80    91%
-  85    78%
-  90    61%
-  95    44%
-  100   31%
+  Age    Probability solvent
+  ────────────────────────────
+  70      99.0%  ████████████████████
+  75      97.0%  ███████████████████
+  80      91.0%  ██████████████████
+  85      78.0%  ███████████████
+  90      61.0%  ████████████
+  95      44.0%  ████████
+  100     31.0%  ██████
 
-Probability of running out before age 100: 18%
+  Probability of running out before age 100: 18.0%
 
-Withdrawal rate % [4.0] (or 'q' to quit): _
+  Withdrawal rate % [4.0] (or 'q' to quit): _
 ```
 
 **Rules:**
-- Press enter to reuse the previous rate (shown in brackets, defaulting to 4.0 on first prompt)
+- On startup, each person is prompted for their retirement age; current age is shown as context
+- Invalid input (non-integer or age ≤ current age) re-prompts
+- The household drawdown snapshot uses the **earliest** retirement age across all people
+- Press enter to reuse the previous withdrawal rate (shown in brackets, defaulting to 4.0 on first prompt)
 - Enter a number (e.g. `3.5`) to use a new rate
 - Enter `q` to exit
+- Annual income figures are in **today's money** (derived from real pot values)
 
-**`--json` flag:** if set, prints raw JSON for accumulation only and skips the interactive session.
+**`--json` flag:** if set, prompts for retirement ages then prints raw JSON for accumulation only and skips the drawdown session.
 
 ---
 
