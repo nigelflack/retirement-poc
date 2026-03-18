@@ -27,11 +27,22 @@ def format_drawdown(results: dict) -> str:
     p10_income = results["annualIncomeP10"]
     p90_income = results["annualIncomeP90"]
     ruin_pct = results["probabilityOfRuin"] * 100
+    state_pensions = results.get("statePensions", [])
 
     lines = [
         f"  Withdrawal rate     : {rate_pct:.1f}%",
         f"  Annual income       : £{median_income:,.0f} median  "
-        f"(£{p10_income:,.0f} – £{p90_income:,.0f} range)",
+        f"(£{p10_income:,.0f} – £{p90_income:,.0f} range)  (today's £)",
+    ]
+
+    if state_pensions:
+        lines.append("  State pensions      :")
+        for sp in state_pensions:
+            lines.append(
+                f"    {sp['name']:<12} £{sp['annualAmount']:,.0f}/yr  from age {sp['fromAge']}"
+            )
+
+    lines += [
         "",
         f"  {'Age':<6} {'Probability solvent':>20}",
         f"  {'─' * 28}",

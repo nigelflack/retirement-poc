@@ -4,7 +4,7 @@ const { runDrawdown } = require('../simulation/drawdown');
 const simulationConfig = require('../../config/simulation.json');
 
 router.post('/', (req, res) => {
-  const { paths, realPaths, withdrawalRate, retirementAge, toAge } = req.body;
+  const { paths, realPaths, withdrawalRate, retirementAge, toAge, statePensions } = req.body;
 
   if (!Array.isArray(paths) || paths.length === 0) {
     return res.status(400).json({ error: 'paths must be a non-empty array' });
@@ -18,8 +18,14 @@ router.post('/', (req, res) => {
   if (toAge <= retirementAge) {
     return res.status(400).json({ error: 'toAge must be greater than retirementAge' });
   }
+  if (statePensions !== undefined && !Array.isArray(statePensions)) {
+    return res.status(400).json({ error: 'statePensions must be an array' });
+  }
 
-  const results = runDrawdown({ paths, realPaths, withdrawalRate, retirementAge, toAge }, simulationConfig);
+  const results = runDrawdown(
+    { paths, realPaths, withdrawalRate, retirementAge, toAge, statePensions },
+    simulationConfig,
+  );
 
   res.json(results);
 });

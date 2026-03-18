@@ -5,16 +5,19 @@ const { logNormalParams, sampleNormal, percentilesOf } = require('./monteCarlo')
  *
  * For each path i:
  *   - Starting pot is paths[i] (nominal value at retirement from Stage 1)
- *   - Annual withdrawal is fixed at paths[i] * withdrawalRate (classic 4% rule)
- *   - That amount is inflated each year by the simulated inflation factor
- *   - Returns are applied after withdrawal
- *   - Ruin = first year pot <= 0 (first-hit)
+ *   - Target income = paths[i] * withdrawalRate (fixed real, inflated each year)
+ *   - State pensions (inflated from their fromAge) reduce the portfolio draw
+ *   - portfolioDraw = max(0, targetIncome - totalStatePension)
+ *   - If statePension >= targetIncome, surplus is reinvested (pot grows)
+ *   - Ruin = first year portfolioDraw > portfolio balance
+ *
+ * statePensions: array of { annualAmount (today's money), fromAge }
  *
  * Returns probability of ruin, survival table, annual income stats, and
  * portfolio percentiles by age for fan chart rendering.
  */
 function runDrawdown(input, config) {
-  const { paths, realPaths, withdrawalRate, retirementAge, toAge } = input;
+  const { paths, realPaths, withdrawalRate, retirementAge, toAge, statePensions = [] } = input;
   const {
     annualReturnMean, annualReturnStdDev,
     annualInflationMean, annualInflationStdDev,
@@ -36,26 +39,38 @@ function runDrawdown(input, config) {
 
   for (let i = 0; i < numSimulations; i++) {
     const startingPot = paths[i];
-    const annualWithdrawal = startingPot * withdrawalRate;
+    const annualTargetReal = startingPot * withdrawalRate;
     // Express income in today's money using the real (inflation-deflated) pot.
     annualIncomes[i] = (realPaths ? realPaths[i] : startingPot) * withdrawalRate;
 
     let pot = startingPot;
     let ruined = false;
-    let inflatedWithdrawal = annualWithdrawal;
+    let cumInflation = 1;
+    let inflatedTarget = annualTargetReal;
 
     for (let y = 0; y < drawdownYears; y++) {
+      const currentAge = retirementAge + y + 1;
       const inflFactor = Math.exp(infParams.muLn + infParams.sigmaLn * sampleNormal());
-      inflatedWithdrawal *= inflFactor;
+      cumInflation *= inflFactor;
+      inflatedTarget *= inflFactor;
 
-      pot -= inflatedWithdrawal;
+      // Sum all active state pensions (inflated from today's money).
+      let totalStatePension = 0;
+      for (const sp of statePensions) {
+        if (currentAge >= sp.fromAge) {
+          totalStatePension += sp.annualAmount * cumInflation;
+        }
+      }
 
-      if (pot <= 0) {
+      const portfolioDraw = Math.max(0, inflatedTarget - totalStatePension);
+
+      if (portfolioDraw > pot) {
         ruined = true;
         ruinCount++;
         break;
       }
 
+      pot -= portfolioDraw;
       pot *= Math.exp(retParams.muLn + retParams.sigmaLn * sampleNormal());
       solventAtYear[y]++;
       valuesByYear[y].push(pot);
@@ -99,6 +114,7 @@ function runDrawdown(input, config) {
   return {
     numSimulations,
     withdrawalRate,
+    statePensions,
     annualIncomeMedian: Math.round(sortedIncomes[Math.floor(numSimulations / 2)]),
     annualIncomeP10: Math.round(sortedIncomes[Math.floor(numSimulations * 0.1)]),
     annualIncomeP90: Math.round(sortedIncomes[Math.floor(numSimulations * 0.9)]),

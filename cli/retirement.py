@@ -72,15 +72,27 @@ def main():
 
     paths = results["household"]["paths"]
     real_paths = results["household"]["realPaths"]
-    retirement_age = min(p["retirementAge"] for p in payload["people"])
+    earliest = min(payload["people"], key=lambda p: p["retirementAge"] - p["currentAge"])
+    retirement_age = earliest["retirementAge"]
     to_age = DEFAULT_TO_AGE
     last_rate = DEFAULT_WITHDRAWAL_RATE
+
+    # Collect state pensions from input JSON (optional field per person).
+    state_pensions = [
+        {
+            "name": p["name"],
+            "annualAmount": p["statePension"]["annualAmount"],
+            "fromAge": p["statePension"]["fromAge"],
+        }
+        for p in payload["people"]
+        if "statePension" in p
+    ]
 
     print()
     print("─" * 52)
     print("  Drawdown explorer")
     print("─" * 52)
-    print(f"  Retirement age : {retirement_age}")
+    print(f"  Household retires : age {retirement_age} ({earliest['name']})")
 
     while True:
         try:
@@ -108,7 +120,8 @@ def main():
 
         try:
             drawdown_results = call_drawdown(
-                args.server, paths, real_paths, rate_pct / 100, retirement_age, to_age
+                args.server, paths, real_paths, rate_pct / 100, retirement_age, to_age,
+                state_pensions=state_pensions or None,
             )
         except Exception as e:
             print(f"  Error calling drawdown server: {e}", file=sys.stderr)

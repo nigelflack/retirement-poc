@@ -12,7 +12,15 @@ def call_simulate(server_url: str, payload: dict) -> dict:
     return response.json()
 
 
-def call_drawdown(server_url: str, paths: list, real_paths: list, withdrawal_rate: float, retirement_age: int, to_age: int) -> dict:
+def call_drawdown(
+    server_url: str,
+    paths: list,
+    real_paths: list,
+    withdrawal_rate: float,
+    retirement_age: int,
+    to_age: int,
+    state_pensions=None,
+) -> dict:
     url = f"{server_url.rstrip('/')}/drawdown"
     payload = {
         "paths": paths,
@@ -21,6 +29,8 @@ def call_drawdown(server_url: str, paths: list, real_paths: list, withdrawal_rat
         "retirementAge": retirement_age,
         "toAge": to_age,
     }
+    if state_pensions:
+        payload["statePensions"] = state_pensions
     response = requests.post(url, json=payload, timeout=60)
     response.raise_for_status()
     return response.json()
