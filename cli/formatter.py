@@ -11,15 +11,11 @@ def _percentile_rows(nominal: dict, real: dict) -> list:
 
 
 def format_results(results: dict) -> str:
-    lines = [f"Simulations run : {results['numSimulations']:,}", ""]
-
-    for person in results["people"]:
-        lines.append(f"── {person['name']} (years to retirement: {person['yearsToRetirement']}) ──")
-        lines.extend(_percentile_rows(person["nominal"], person["real"]))
-        lines.append("")
-
     h = results["household"]
-    lines.append(f"── Household combined (at year {h['yearsToSnapshot']}) ──")
+    lines = [
+        f"Simulations run      : {results['numSimulations']:,}",
+        f"Household snapshot   : year {h['yearsToSnapshot']}",
+        "",
+    ]
     lines.extend(_percentile_rows(h["nominal"], h["real"]))
-
     return "\n".join(lines)
