@@ -1,0 +1,7 @@
+{
+  "numSimulations": 10000,
+  "annualReturnMean": 0.07,
+  "annualReturnStdDev": 0.15,
+  "annualInflationMean": 0.025,
+  "annualInflationStdDev": 0.01
+}

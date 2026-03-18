@@ -1,0 +1,35 @@
+{
+  "household": {
+    "desiredAnnualIncome": [
+      { "amount": 50000 },
+      { "fromYear": 2046, "amount": 35000 }
+    ]
+  },
+  "people": [
+    {
+      "name": "Nigel",
+      "currentAge": 52,
+      "retirementAge": 62,
+      "accounts": [
+        { "name": "Standard Life", "type": "pension", "currentValue": 140000, "monthlyContribution": 800 },
+        { "name": "Vanguard SIPP", "type": "pension", "currentValue": 190000,  "monthlyContribution": 1600 },
+        { "name": "Vanguard ISA", "type": "isa", "currentValue": 61000,  "monthlyContribution": 1600 }
+      ],
+      "statePension": { "fromAge": 67, "annualAmount": 12000 },
+      "otherIncome": [
+        { "label": "Rental income", "fromAge": 40, "toAge": 80, "annualAmount": 8400 }
+      ]
+    },
+    {
+      "name": "Mimi",
+      "currentAge": 46,
+      "retirementAge": 56,
+      "accounts": [
+        { "name": "Scottish Widows", "type": "pension", "currentValue": 50000,  "monthlyContribution": 0 },
+        { "name": "ISA", "type": "isa", "currentValue": 20000,  "monthlyContribution": 100 }
+      ],
+      "statePension": { "fromAge": 67, "annualAmount": 10000 },
+      "otherIncome": []
+    }
+  ]
+}
