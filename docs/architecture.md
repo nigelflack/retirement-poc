@@ -11,14 +11,26 @@ Personal retirement planning calculator. Monte Carlo simulation backend with a P
 │  cli/client.py — HTTP wrapper           │
 │  cli/formatter.py — terminal output     │
 └─────────────┬───────────────────────────┘
-              │ POST /run (JSON over HTTP)
+              │ POST /run  POST /solve/income  POST /solve/ages
               ▼
 ┌─────────────────────────────────────────┐
 │  Server (Node.js + Express, port 3000)  │
 │  server/src/index.js                    │
 │  server/src/routes/run.js               │
+│  server/src/routes/solve.js             │
 │  server/src/simulation/run.js           │
+│  server/src/simulation/math.js          │
 └─────────────────────────────────────────┘
+
+┌─────────────────────────────────────────┐
+│  Web UI (React + Vite, port 5173)       │
+│  ui/src/App.jsx                         │
+│  ui/src/components/wizard/             │
+│  ui/src/components/scenario/           │
+└─────────────┬───────────────────────────┘
+              │ POST /run
+              ▼
+           Server
 ```
 
 ---
@@ -84,9 +96,70 @@ Single endpoint introduced in v0.5, replacing the old two-stage `/simulate` + `/
 - `portfolioPercentiles.byAge[n].nominal` — 99-element array (index 0 = p1, index 98 = p99); covers every year from age `currentAge+1` to `toAge`
 - Raw simulation paths are never returned
 
+---
+
+#### `POST /solve/income`
+
+Solves for the maximum sustainable monthly income given fixed retirement ages and a solvency target.
+
+**Request:**
+```json
+{
+  "people": [ ...same shape as POST /run... ],
+  "toAge": 100,
+  "targetSolvencyPct": 0.85,
+  "referenceAge": 90
+}
+```
+
+**Response:**
+```json
+{
+  "monthlyIncome": 2600,
+  "withdrawalRate": 0.038,
+  "survivalAtReferenceAge": 0.852
+}
+```
+
+Algorithm: binary search over `monthlyIncome` (up to 50 iterations) until `interpolateSolventAt(survivalTable, referenceAge)` converges within ±0.001 of `targetSolvencyPct`.
+
+---
+
+#### `POST /solve/ages`
+
+Solves for the earliest retirement ages at which a household can sustain a given monthly income at the target solvency level.
+
+**Request:**
+```json
+{
+  "people": [ ...same shape as POST /run, retirementAge = starting age to search from... ],
+  "monthlyIncome": 3000,
+  "toAge": 100,
+  "targetSolvencyPct": 0.85,
+  "referenceAge": 90
+}
+```
+
+**Response:**
+```json
+{
+  "retirementAges": [
+    { "name": "Bob", "retirementAge": 64 },
+    { "name": "Alice", "retirementAge": 59 }
+  ],
+  "monthlyIncome": 3000,
+  "survivalAtReferenceAge": 0.863
+}
+```
+
+Algorithm: advance all persons' retirement ages by +1 year simultaneously (up to 50 iterations) until solvency at `referenceAge` ≥ `targetSolvencyPct`.
+
+---
+
 ### Simulation engine
 
-**`server/src/simulation/run.js`** — single-pass Monte Carlo
+**`server/src/simulation/run.js`** — single-pass Monte Carlo orchestration  
+**`server/src/simulation/math.js`** — pure math utilities (`sampleNormal`, `logNormalParams`, `percentile`, `interpolateSolventAt`)
 
 Each of 10,000 paths runs from today to `toAge` in one continuous loop:
 
@@ -115,11 +188,7 @@ Each of 10,000 paths runs from today to `toAge` in one continuous loop:
 }
 ```
 
-### Dead code (not wired up, retained for reference)
-- `server/src/routes/simulate.js` — old v0.1–v0.4 accumulation route
-- `server/src/routes/drawdown.js` — old v0.4 drawdown route
-- `server/src/simulation/monteCarlo.js` — old accumulation engine
-- `server/src/simulation/drawdown.js` — old drawdown engine
+
 
 ---
 
@@ -168,9 +237,11 @@ Computed as `min(retirementAge - currentAge)` across all people, i.e. years away
 
 ---
 
-## Web UI (planned, not started)
+## Web UI
 
-- Framework: TBD
-- Will consume the same `POST /run` endpoint
-- Fan chart (p1–p99 by age) data is already in the response
-- See `docs/flow.md` for current wireframe
+- **Stack:** React 18, Vite 5, Tailwind 3, shadcn/ui (copy-paste components), Radix UI primitives
+- **Location:** `ui/` at project root; runs on port 5173 in dev
+- **API:** calls `POST /run` directly; server URL configured via `VITE_SERVER_URL` env var (default `http://localhost:3000`)
+- **Flow:** 3-step wizard (person details → assets → scenario); step state managed in `App.jsx`
+- Fan chart (p1–p99 by age) data is in `POST /run` response, ready for Panel 3 visualisation
+- See `docs/ui/` for screen definitions

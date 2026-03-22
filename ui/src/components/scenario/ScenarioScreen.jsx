@@ -7,6 +7,19 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { callRun } from '@/api/run'
 import { formatCurrency, cn } from '@/lib/utils'
 
+// --- Interpolate probabilitySolvent at a target age from the survival table ---
+function interpolateSolventAt(survivalTable, targetAge) {
+  if (!survivalTable || survivalTable.length === 0) return null
+  const exact = survivalTable.find(e => e.age === targetAge)
+  if (exact) return exact.probabilitySolvent
+  const below = [...survivalTable].reverse().find(e => e.age < targetAge)
+  const above = survivalTable.find(e => e.age > targetAge)
+  if (!below) return above.probabilitySolvent
+  if (!above) return below.probabilitySolvent
+  const t = (targetAge - below.age) / (above.age - below.age)
+  return below.probabilitySolvent + t * (above.probabilitySolvent - below.probabilitySolvent)
+}
+
 // --- Solvency bar label ---
 function solvencyLabel(probabilitySolventAt90) {
   if (probabilitySolventAt90 == null) return null
@@ -160,7 +173,7 @@ export default function ScenarioScreen({ people, onEditDetails }) {
   const solvencyPct = lastResult
     ? Math.round((1 - lastResult.probabilityOfRuin) * 100)
     : null
-  const survivalAt90 = lastResult?.survivalTable?.find(e => e.age === 90)?.probabilitySolvent ?? null
+  const survivalAt90 = interpolateSolventAt(lastResult?.survivalTable, 90)
   const medianPot = lastResult?.accumulationSnapshot?.real?.p50 ?? null
 
   const headerName = hasPartner

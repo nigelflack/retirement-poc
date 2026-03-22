@@ -747,3 +747,454 @@ State is held in React at the top-level app component and passed down. There is 
 - No fan chart or portfolio percentile visualisation
 - No deployment — local dev only
 - withdrawalRate is derived iteratively from the income target using the previous run's p50; on first load it defaults to 4%
+
+---
+
+## v0.7 — Server cleanup, refactor, solve endpoints, CLI test harness
+
+**Goal**: Add two new server endpoints that invert the simulation (solve for income given ages, and solve for retirement ages given income), clean up dead server code, refactor the simulation directory into a cleaner file structure, and add a test harness to the CLI so server behaviour can be verified against known scenarios.
+
+No web-UI changes in this iteration.
+
+---
+
+### 1. Server cleanup and refactor
+
+#### 1a. Delete dead files
+
+Delete three files that are imported by nothing and were made redundant when the unified `POST /run` endpoint replaced the earlier per-step routes:
+
+| File | Why dead |
+|------|----------|
+| `server/src/routes/simulate.js` | Was mounted before `/run` consolidated the pipeline; no longer registered in `index.js` |
+| `server/src/routes/drawdown.js` | Same — drawdown route superseded |
+| `server/src/simulation/drawdown.js` | Simulation logic for the above; unused |
+
+#### 1b. Extract `math.js`
+
+Currently `monteCarlo.js` and `run.js` both contain a `percentile` implementation (duplication), and pure math utilities are mixed into the simulation orchestration logic in both files. Extract all pure math into a single `server/src/simulation/math.js`:
+
+| Function | Moved from |
+|----------|-----------|
+| `sampleNormal()` | `monteCarlo.js` |
+| `logNormalParams(mean, stdDev)` | `monteCarlo.js` |
+| `percentile(sorted, p)` | `monteCarlo.js` and `run.js` (duplicate) |
+| `interpolateSolventAt(survivalTable, targetAge)` | New — shared by `run.js` and the solve endpoints |
+
+`interpolateSolventAt` performs the same linear interpolation that currently lives in the React front-end (`ScenarioScreen.jsx`). Moving it to the server means solve endpoints can use it directly during their search loops, and the front-end continues to call `POST /run` whose response already contains pre-computed values.
+
+#### 1c. Delete `monteCarlo.js`
+
+Once `math.js` is in place, `monteCarlo.js` is fully superseded. Delete it and update `run.js` to import from `./math`.
+
+#### After refactor — `server/src/simulation/` contains:
+
+| File | Responsibility |
+|------|---------------|
+| `math.js` | Pure maths: sampling, log-normal params, percentile, solvency interpolation |
+| `run.js` | Single-pass Monte Carlo orchestration — imports from `./math` |
+
+`run.js` retains its own `percentilesOf5` and `allPercentiles` helpers (they are specific to how `run.js` structures output, not general-purpose math).
+
+No changes to route files or `index.js` as part of this cleanup step.
+
+---
+
+### 2. `POST /solve/income`
+
+Solve for the maximum sustainable monthly income a household can draw, given fixed retirement ages and a solvency target.
+
+#### Request
+
+```json
+{
+  "people": [
+    {
+      "name": "Bob",
+      "currentAge": 50,
+      "retirementAge": 63,
+      "accounts": [
+        { "type": "ISA", "balance": 120000, "monthlyContribution": 500 }
+      ],
+      "statePensionMonthly": 900,
+      "statePensionAge": 67
+    }
+  ],
+  "toAge": 100,
+  "targetSolvencyPct": 0.85,
+  "referenceAge": 90
+}
+```
+
+- `targetSolvencyPct` — probability-of-solvency threshold to hit, expressed as a decimal (e.g. `0.85` = 85 %)
+- `referenceAge` — the age at which solvency is measured (e.g. `90`)
+- `toAge` — maximum simulation horizon per person
+- All `people` fields follow the same shape as `POST /run`
+
+#### Algorithm
+
+Binary search over `monthlyIncome` (from 0 to a ceiling of gross accumulation / 12):
+
+1. Given a candidate `monthlyIncome`, derive `withdrawalRate = (monthlyIncome × 12) / accumulationSnapshot.real.p50` (same derivation used in `POST /run`).
+2. Call the Monte Carlo simulation and compute `interpolateSolventAt(survivalTable, referenceAge)`.
+3. If the interpolated probability is within ±0.001 of `targetSolvencyPct`, converge.
+4. Otherwise, bisect: too high → lower income, too low → raise income.
+5. Cap iterations at 50 to prevent infinite loops.
+
+`interpolateSolventAt` is the same linear interpolation used in the front-end; extract it into a shared utility in `server/src/simulation/run.js` (or a new `server/src/simulation/utils.js`) to avoid duplication.
+
+#### Response
+
+```json
+{
+  "monthlyIncome": 2600,
+  "withdrawalRate": 0.038,
+  "survivalAtReferenceAge": 0.852
+}
+```
+
+#### Error cases
+
+| Condition | HTTP | Body |
+|-----------|------|------|
+| Missing / malformed `people` | 400 | `{ "error": "people is required and must be a non-empty array" }` |
+| `targetSolvencyPct` not in (0, 1) | 400 | `{ "error": "targetSolvencyPct must be between 0 and 1 exclusive" }` |
+| `referenceAge` not a positive integer | 400 | `{ "error": "referenceAge must be a positive integer" }` |
+| Simulation cannot converge | 422 | `{ "error": "Could not find a sustainable income within the simulation bounds" }` |
+
+---
+
+### 3. `POST /solve/ages`
+
+Solve for the earliest retirement ages at which the household can sustain a given monthly income at the target solvency level.
+
+#### Request
+
+```json
+{
+  "people": [
+    {
+      "name": "Bob",
+      "currentAge": 50,
+      "retirementAge": 55,
+      "accounts": [...],
+      "statePensionMonthly": 900,
+      "statePensionAge": 67
+    },
+    {
+      "name": "Alice",
+      "currentAge": 45,
+      "retirementAge": 50,
+      "accounts": [...],
+      "statePensionMonthly": 750,
+      "statePensionAge": 67
+    }
+  ],
+  "monthlyIncome": 3000,
+  "toAge": 100,
+  "targetSolvencyPct": 0.85,
+  "referenceAge": 90
+}
+```
+
+- `retirementAge` in each person object is the *starting* retirement age to test from (i.e. the earliest the person would consider retiring)
+- All other fields follow the same shape as `POST /run`
+
+#### Algorithm
+
+Binary search over retirement age offset (all persons advance together to keep relative gap constant):
+
+1. Set `lo = 0`, `hi = 20` (offset in years from each person's supplied `retirementAge`).
+2. At each step, test `mid = floor((lo + hi) / 2)`: add `mid` years to each person's `retirementAge`, run the Monte Carlo simulation, and compute `interpolateSolventAt(survivalTable, referenceAge)`.
+3. If probability ≥ `targetSolvencyPct`, record this offset as a candidate and set `hi = mid` (try to retire earlier).
+4. If probability < `targetSolvencyPct`, set `lo = mid + 1` (need to work longer).
+5. After convergence, return the ages at the best candidate offset.
+6. If even `offset = 20` does not reach the target, return 422.
+
+Cap at 20 iterations (sufficient for 2⁵ = 32 positions within a 20-year window).
+
+#### Response
+
+```json
+{
+  "retirementAges": [
+    { "name": "Bob", "retirementAge": 64 },
+    { "name": "Alice", "retirementAge": 59 }
+  ],
+  "monthlyIncome": 3000,
+  "survivalAtReferenceAge": 0.863
+}
+```
+
+#### Error cases
+
+| Condition | HTTP | Body |
+|-----------|------|------|
+| Missing / malformed `people` | 400 | `{ "error": "people is required and must be a non-empty array" }` |
+| `monthlyIncome` missing or ≤ 0 | 400 | `{ "error": "monthlyIncome must be a positive number" }` |
+| `targetSolvencyPct` not in (0, 1) | 400 | `{ "error": "targetSolvencyPct must be between 0 and 1 exclusive" }` |
+| `referenceAge` not a positive integer | 400 | `{ "error": "referenceAge must be a positive integer" }` |
+| Cannot reach target within iteration cap | 422 | `{ "error": "Could not find retirement ages that satisfy the solvency target" }` |
+
+---
+
+### 4. CLI `--test` flag
+
+Extend `cli/retirement.py` with a `--test` sub-command that runs a fixed set of named scenarios against the server and reports pass/fail.
+
+#### Invocation
+
+```
+python cli/retirement.py --test [--server http://localhost:3000]
+```
+
+`--server` defaults to `http://localhost:3000`.
+
+#### Scenarios
+
+Three scenarios, each stored as a JSON file alongside the existing inputs:
+
+| File | Description |
+|------|-------------|
+| `cli/inputs/test_single_comfortable.json` | Single person, well-funded, expects high solvency |
+| `cli/inputs/test_single_tight.json` | Single person, underfunded, expects low solvency |
+| `cli/inputs/test_couple_standard.json` | Two-person household, mid-range funding |
+
+Each test file contains:
+- A `payload` block — the body to send to `POST /run`
+- An `assertions` block — expected values with tolerances
+
+Example assertions block:
+
+```json
+{
+  "assertions": {
+    "probabilityOfRuin": { "max": 0.20 },
+    "survivalTableAt90": { "min": 0.70, "max": 0.95 },
+    "annualIncomeMedian": { "min": 28000, "max": 40000 }
+  }
+}
+```
+
+Supported assertion keys:
+
+| Key | Source in response | Assertion type |
+|-----|--------------------|----------------|
+| `probabilityOfRuin` | `result.probabilityOfRuin` | `min`, `max` |
+| `survivalTableAt90` | `interpolateSolventAt(result.survivalTable, 90)` | `min`, `max` |
+| `annualIncomeMedian` | `result.annualIncomeMedian` | `min`, `max`, `approx` (±5 %) |
+
+#### Output format
+
+```
+PASS  test_single_comfortable  (probabilityOfRuin=0.04, survivalTableAt90=0.91, annualIncomeMedian=33600)
+PASS  test_couple_standard     (probabilityOfRuin=0.12, survivalTableAt90=0.82, annualIncomeMedian=36000)
+FAIL  test_single_tight        survivalTableAt90 expected min=0.70, got 0.45
+
+3 scenarios: 2 passed, 1 failed
+```
+
+Exit code 0 if all pass; exit code 1 if any fail.
+
+#### Implementation notes
+
+- Reuse the existing `client.py` HTTP client in the CLI
+- `interpolateSolventAt` should be implemented in Python in `formatter.py` (or a small helper) — same linear interpolation logic as the server
+- No changes to `formatter.py` output format for non-test runs
+
+---
+
+### Acceptance criteria (v0.7)
+
+1. `server/src/routes/simulate.js`, `server/src/routes/drawdown.js`, and `server/src/simulation/drawdown.js` are deleted; the server starts cleanly with no reference to them.
+2. `server/src/simulation/math.js` exists and exports `sampleNormal`, `logNormalParams`, `percentile`, and `interpolateSolventAt`.
+3. `server/src/simulation/monteCarlo.js` is deleted; `run.js` imports from `./math` and `POST /run` produces identical output to pre-refactor.
+4. `POST /solve/income` returns a response matching the schema above for the `nigel.json` input converted to the new shape.
+5. `POST /solve/ages` returns a response matching the schema above for the same input.
+6. Both solve endpoints return 400 for missing required fields and 422 when the solver cannot converge.
+7. `python cli/retirement.py --test` runs all three scenarios, prints labelled pass/fail lines, and exits with code 0 when all pass.
+8. `python cli/retirement.py --test` exits with code 1 and prints the failing assertion when a scenario fails (verified by temporarily setting an impossible assertion value).
+9. No regressions: `POST /run` still returns the same response shape as in v0.6.
+
+---
+
+### Known limitations (v0.7)
+
+- Solve endpoints use simple iterative search; no mathematical closed-form solution
+- `POST /solve/ages` advances all persons' ages uniformly — it cannot model one person retiring much earlier than another
+- Binary search window of floor+20 years; scenarios requiring retirement age above floor+20 return 422
+- No web UI in this iteration; Panel 2 and 3 remain as placeholders
+
+---
+
+## v0.7.1 — CLI solve modes, remove --test ✅ COMPLETE
+
+**Goal**: Expose `POST /solve/income` and `POST /solve/ages` as interactive CLI modes, remove the `--test` flag, and add a `tolerance` parameter to `POST /solve/income` so the binary search stops when it is close enough rather than chasing MC noise.
+
+---
+
+### 1. `POST /solve/income` — add `tolerance` parameter
+
+The current convergence check (`abs(solvency - targetSolvencyPct) < 0.001`) is tighter than the MC noise floor (~1–2% at 10,000 simulations) and causes unnecessary extra iterations.
+
+Add an optional `tolerance` field to the request body:
+
+```json
+{
+  "people": [...],
+  "targetSolvencyPct": 0.85,
+  "referenceAge": 90,
+  "tolerance": 0.02
+}
+```
+
+- Default: `0.02` (2 percentage points)
+- Valid range: `> 0` and `< 1`; reject with 400 otherwise
+- Convergence condition: `solvency >= targetSolvencyPct` **and** `abs(solvency - targetSolvencyPct) <= tolerance`
+- With the default, a result of 83–87% is acceptable when targeting 85%; the search stops at the first bisection step that lands in that band
+
+No change to the response shape.
+
+---
+
+### 2. `POST /solve/ages` — switch to binary search
+
+The current linear year-step approach runs up to 50 full simulations in the worst case. Replace with binary search over an offset window of `[0, 20]` years from each person's floor `retirementAge`:
+
+- `lo = 0`, `hi = 20`
+- At each step test offset `mid = floor((lo + hi) / 2)`, adding `mid` to each person's `retirementAge`
+- If solvency ≥ target: record candidate, set `hi = mid - 1` (try earlier)
+- If solvency < target: set `lo = mid + 1` (need to work longer)
+- After convergence return the ages at the lowest passing offset
+- If offset 20 still does not reach the target, return 422
+
+This caps the search at ~5–6 simulations for any input, regardless of how far the answer is from the floor.
+
+No change to the request or response shape. No change to the `tolerance` concept — `/solve/ages` is already whole-year resolution and MC noise is less significant than the year-step granularity.
+
+---
+
+### 3. Solve search simulations — 2,000 runs
+
+Both solve endpoints call `runFull` once per search iteration. Using the full 10,000 runs each time is wasteful; the standard error at 2,000 simulations (SE ≈ 0.8% at p=0.85) is well within the 2% tolerance band.
+
+Internal constant in `solve.js`:
+
+```javascript
+const SOLVE_SEARCH_CONFIG = { ...config, numSimulations: 2000 };
+```
+
+- Search iterations in both `/solve/income` and `/solve/ages` use `SOLVE_SEARCH_CONFIG` (2,000 simulations)
+- `POST /run` continues to use the full config (10,000 simulations)
+- This is an internal implementation detail — no API change
+
+---
+
+### 4. Remove `--test`
+
+Remove the `--test` argument from `retirement.py` and the `run_tests()` function. Remove `interpolate_solvent_at` from `formatter.py` (it was added solely for the test harness and is not used by any other output path).
+
+The `cli/inputs/` directory now contains only personal input files (`nigel-mimi.json`, `bob-alice.json`).
+
+---
+
+### 5. `--solve income`
+
+```
+python retirement.py --input inputs/nigel-mimi.json --solve income
+```
+
+**Prompt sequence:**
+
+1. Retirement age per person (same prompt as normal mode — previous values in brackets on re-run)
+2. Target solvency % `[85]` — enter keeps default
+3. Reference age `[90]` — enter keeps default
+
+**Calls:** `POST /solve/income` with the people (including prompted retirement ages), `toAge=100`, `targetSolvencyPct`, `referenceAge`.
+
+**Output:**
+```
+  Solve: maximum sustainable income
+  ─────────────────────────────────────────────
+  Retirement ages    : Nigel 62, Mimi 55
+  Target solvency    : 85% at age 90
+  Monthly income     : £2,450
+  Annual income      : £29,400
+  Withdrawal rate    : 3.8%
+  Survival at 90     : 85.1%
+```
+
+**Re-run loop:** yes — same "Re-run scenario? [y/n]" pattern as normal mode, retaining previous retirement ages, solvency %, and reference age.
+
+---
+
+### 6. `--solve ages`
+
+```
+python retirement.py --input inputs/nigel-mimi.json --solve ages
+```
+
+**Prompt sequence:**
+
+1. Monthly income target (£/month) — required, no default
+2. Earliest retirement age to consider per person `[67]` — default is state pension age 67; enter keeps it
+3. Target solvency % `[85]`
+4. Reference age `[90]`
+
+The prompted earliest retirement age is passed as `retirementAge` in the request body — this is the floor the server starts searching from.
+
+**Calls:** `POST /solve/ages` with the people (each using the prompted floor retirement age), `monthlyIncome`, `toAge=100`, `targetSolvencyPct`, `referenceAge`.
+
+**Output:**
+```
+  Solve: earliest retirement ages for £3,000/month
+  ─────────────────────────────────────────────────
+  Target solvency    : 85% at age 90
+  Nigel retires at   : 64
+  Mimi retires at    : 59
+  Monthly income     : £3,000
+  Survival at 90     : 86.3%
+```
+
+If the server returns 422 (cannot converge), print:
+```
+  Could not find retirement ages that satisfy the target. Try a lower income or solvency %.
+```
+
+**Re-run loop:** yes — retains previous income, floor ages, solvency %, and reference age.
+
+---
+
+### 7. Input file rename
+
+The input files have been renamed to reflect both people in each scenario:
+
+| Old name | New name |
+|----------|----------|
+| `nigel.json` | `nigel-mimi.json` |
+| `example.json` | `bob-alice.json` |
+
+No structural changes to the file format.
+
+---
+
+### Acceptance criteria (v0.7.1)
+
+1. `POST /solve/income` accepts `tolerance` and defaults it to `0.02`; passing `tolerance=0.05` causes the search to converge faster than `tolerance=0.001`.
+2. `POST /solve/income` returns 400 for `tolerance` outside `(0, 1)`.
+3. `POST /solve/ages` uses binary search over a `[floor, floor+20]` window; a scenario requiring floor+25 years returns 422.
+4. `--test` flag is gone; `python retirement.py --test` exits with an argparse error.
+5. `run_tests()` function is removed from `retirement.py`; `interpolate_solvent_at` is removed from `formatter.py`.
+6. `python retirement.py --input inputs/nigel-mimi.json --solve income` prompts for retirement ages, solvency %, and reference age, then prints the solve output.
+7. `python retirement.py --input inputs/nigel-mimi.json --solve ages` prompts for monthly income, floor ages (default 67), solvency %, and reference age, then prints the solved retirement ages.
+8. Both solve modes support re-run with retained previous values.
+9. Normal mode (`--input` only) and `--json` mode are unaffected.
+10. `--input` is still required when `--solve` is absent.
+11. Both solve endpoints use 2,000 simulations per search iteration; `POST /run` continues to use 10,000.
+
+---
+
+### Known limitations (v0.7.1)
+
+- No `--solve` re-run loop between income and ages modes — each is a separate invocation
+- Floor retirement age default of 67 may be above the current age for some users; the prompt validates and rejects values ≤ currentAge

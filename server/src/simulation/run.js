@@ -1,16 +1,4 @@
-const { logNormalParams, sampleNormal } = require('./monteCarlo');
-
-/**
- * Linear interpolation percentile from a sorted array.
- */
-function percentile(sorted, p) {
-  const idx = (p / 100) * (sorted.length - 1);
-  const lo = Math.floor(idx);
-  const hi = Math.ceil(idx);
-  if (lo === hi) return Math.round(sorted[lo]);
-  const frac = idx - lo;
-  return Math.round(sorted[lo] * (1 - frac) + sorted[hi] * frac);
-}
+const { logNormalParams, sampleNormal, percentile } = require('./math');
 
 function percentilesOf5(arr) {
   const sorted = arr.slice().sort((a, b) => a - b);

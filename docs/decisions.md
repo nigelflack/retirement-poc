@@ -92,3 +92,76 @@ Decisions recorded in version order. Each entry explains what was decided and wh
 ### Scenario loop: all parameters re-promptable each run
 **Decided:** Retirement ages and withdrawal rate are all prompted each iteration; previous values shown in brackets so Enter keeps them. Loop ends with `Re-run scenario? [y/n]`.
 **Rationale:** Makes retirement age a first-class scenario variable alongside withdrawal rate — the primary value of the single-pass redesign.
+
+---
+
+## v0.6
+
+### React SPA + Vite + Tailwind + shadcn/ui as the web UI stack
+**Decided:** React 18, Vite build tool, Tailwind CSS utility classes, shadcn/ui components (copy-pasted into `ui/src/components/ui/`).
+**Rationale:** React is the natural fit for a live-updating, stateful single-page tool. Vite is fast and zero-config. Tailwind and shadcn/ui give a clean, minimal default look with owned, easily-modified component source. No external state management library needed for wizard state of this size.
+**Deferred:** Deployment/hosting; routing (single `step` integer state is sufficient for now).
+
+### UI lives in `ui/` at the project root
+**Decided:** The React app is a sibling directory to `server/` and `cli/`, not nested inside either.
+**Rationale:** Keeps the three concerns (server, CLI, UI) clearly separated with no circular dependency.
+
+### `withdrawalRate` derived iteratively from monthly income input
+**Decided:** On first load, `withdrawalRate` defaults to 0.04. After each run, it is recalculated as `(monthlyIncome × 12) / accumulationSnapshot.real.p50` and used on the next call.
+**Rationale:** The API takes `withdrawalRate`, not an income target. Iterative derivation converges quickly (typically one run) and avoids a new API parameter for this version.
+**Known limitation:** First-load withdrawal rate is a guess; the rate stabilises after the first result is returned.
+
+### Survival table interpolation for age-90 solvency label
+**Decided:** The solvency label is keyed to `probabilitySolvent` at age 90, interpolated linearly between the two surrounding survival table entries when age 90 is not an exact table entry.
+**Rationale:** The survival table uses 5-year intervals from the household retirement age. Age 90 only lands exactly when the retirement age is a multiple of 5. Interpolation ensures the label always appears regardless of the retirement age chosen.
+
+### Panels 2–4 deferred as visible placeholders
+**Decided:** Panels 2, 3, and 4 are rendered as "Not yet available" cards in v0.6.
+**Rationale:** Panels 2 and 3 require solve-for-income and solve-for-age iteration — a non-trivial addition. Shipping Panel 1 end-to-end validates the full wizard flow and API integration before that complexity is added.
+
+---
+
+## v0.7
+
+### Pure math extracted into `math.js`; `monteCarlo.js` deleted
+**Decided:** `sampleNormal`, `logNormalParams`, `percentile` (which was duplicated in both `monteCarlo.js` and `run.js`), and the new `interpolateSolventAt` live in a single `server/src/simulation/math.js`. `monteCarlo.js` is deleted entirely.
+**Rationale:** Removes duplication, gives the solve endpoints a single reliable import for interpolation, and makes the simulation directory easier to read: `math.js` = pure functions, `run.js` = orchestration.
+
+### `interpolateSolventAt` lives on the server, not only in the UI
+**Decided:** The linear interpolation function — previously only in `ScenarioScreen.jsx` — is also implemented in `math.js` (JS) and `formatter.py` (Python).
+**Rationale:** The solve endpoints need it during their search loops server-side. The CLI test harness needs it to evaluate the `survivalTableAt90` assertion. Having it in one canonical place per runtime avoids three independent implementations drifting apart.
+
+### Solve endpoints use iterative search, not a closed-form solution
+**Decided:** `/solve/income` uses binary search (up to 50 iterations); `/solve/ages` steps ages forward one year at a time (up to 50 iterations or until retirement age reaches `toAge`).
+**Rationale:** The simulation has no closed-form inverse. Binary search on income converges quickly (~12–15 iterations to ±£1). Age-stepping is coarser but produces directly actionable whole-year results, which is what users need.
+**Known limitation:** `/solve/ages` advances all persons' ages uniformly; it cannot independently optimise one person's age while holding another fixed.
+
+### CLI `--test` uses tolerance ranges, not exact values
+**Decided:** Each test scenario asserts `min`/`max` bounds on `probabilityOfRuin`, `survivalTableAt90`, and `annualIncomeMedian`; no exact-match assertions.
+**Rationale:** Monte Carlo results vary by ~1–3% run-to-run. Tight ranges confirm the simulation is in the right ballpark without being brittle to randomness. Bounds were calibrated to allow ~±20% variation around typical observed values.
+
+---
+
+## v0.7.1
+
+### `/solve/income` convergence tolerance made configurable (default 2%)
+**Decided:** The convergence check uses an optional `tolerance` request parameter (default `0.02`). The binary search stops when `solvency >= target` and `abs(solvency - target) <= tolerance`.
+**Rationale:** The original hard-coded threshold of `0.001` (0.1 percentage point) was tighter than the MC noise floor at 10,000 simulations (~0.36% SE at p=0.85). The search would always exhaust all 50 iterations rather than converging early. A 2% default is comfortably wider than the noise floor while still being tight enough to be meaningful to users.
+
+### `/solve/ages` switched from linear stepping to binary search
+**Decided:** `/solve/ages` now binary-searches over a `[floor, floor+20]` year offset window: `lo=0, hi=20`, bisecting each iteration. The lowest passing offset is returned; if offset 20 does not reach the target, 422 is returned.
+**Rationale:** The linear step approach ran up to 50 full simulations in the worst case (one per year). Binary search caps the work at ~5 iterations regardless of how far the solution is from the floor — a 10× improvement at the limit. The 20-year window covers all realistic cases (floor age of 67 to ~87 would be pathological input).
+**Trade-off accepted:** The window cap (floor+20) is a hard limit. Scenarios where no retirement age in that window is sufficient return 422, prompting the user to reduce their income or solvency target.
+
+### Solve endpoints use 2,000 simulations per search iteration
+**Decided:** Both solve endpoints pass `SOLVE_SEARCH_CONFIG = { ...config, numSimulations: 2000 }` to `runFull` during their search loops. `POST /run` continues to use the full 10,000.
+**Rationale:** At p=0.85, the standard error of the solvency estimate is `sqrt(0.85 × 0.15 / n)`: ~0.36% at n=10,000 and ~0.8% at n=2,000. With a 2% convergence tolerance, the extra noise from 2,000 sims is well within the acceptable band. The reduction makes solve calls roughly 5× faster with no meaningful loss of accuracy in the final result.
+**Internal detail:** The reduced count is not exposed as an API parameter — it is an implementation constant in `solve.js`.
+
+### `--test` CLI flag removed; input files renamed
+**Decided:** The `--test` flag, `run_tests()` function, and `interpolate_solvent_at()` formatter helper are all removed. Input files renamed from `nigel.json`/`example.json` to `nigel-mimi.json`/`bob-alice.json`.
+**Rationale:** The test fixture files (`test_*.json`) conflated personal data with test assertions. Renaming to person-pair names makes the purpose of each file clear. With the test harness gone, `interpolate_solvent_at` in the CLI had no remaining caller.
+
+### CLI `--solve income` and `--solve ages` modes added
+**Decided:** A `--solve {income,ages}` argument is added to the CLI. Each mode has its own prompt sequence and re-run loop. The `--input` flag remains required for all modes.
+**Rationale:** The solve endpoints existed since v0.7 but were only accessible via raw HTTP. These modes make them first-class citizens of the CLI workflow alongside normal `POST /run` mode, with the same re-run loop pattern and previous-value retention.
