@@ -1198,3 +1198,155 @@ No structural changes to the file format.
 
 - No `--solve` re-run loop between income and ages modes — each is a separate invocation
 - Floor retirement age default of 67 may be above the current age for some users; the prompt validates and rejects values ≤ currentAge
+
+---
+
+## v0.8 — Panel 2, Panel 3, scenario loader, unit tests
+
+**Goal**: Complete the web UI scenario screen by making Panels 2 and 3 live; add a scenario loader page at `/scenarios` for pre-loaded test data; add server-side unit tests to protect the simulation engine.
+
+---
+
+### 1. React Router
+
+The UI currently has no client-side routing. Add `react-router-dom` v6 and define two routes:
+
+| Path | Component |
+|------|-----------|
+| `/` | `App` — the existing wizard (Steps 1 → 2 → 3) |
+| `/scenarios` | `ScenariosPage` — new scenario picker page |
+
+`main.jsx` wraps the app in `<BrowserRouter>`. The existing `App` component is unchanged except that `ScenariosPage` is a sibling route, not nested inside it.
+
+Vite must be configured to serve `index.html` for all unmatched paths (`server.historyApiFallback: true` or equivalent) so direct navigation to `/scenarios` works.
+
+---
+
+### 2. Scenario loader page (`/scenarios`)
+
+A simple page listing available pre-built scenarios. Intended for development and user testing — not linked from the main wizard flow.
+
+**Scenarios are bundled in the UI** as JSON files under `ui/src/scenarios/`. Each file has the same shape as a `POST /run` request body (`people`, each with `name`, `currentAge`, `accounts`, optional `statePension`). No `retirementAge` is required — the scenario screen prompts for that.
+
+**Initial scenario files** (copied from `cli/inputs/`):
+- `nigel-mimi.json`
+- `bob-alice.json`
+
+**Display name**: derived directly from the filename, stripping the `.json` extension. No separate metadata field.
+
+**Behaviour on selection**: clicking a scenario card:
+1. Loads the scenario JSON from the bundled module
+2. Navigates to `/` and renders the scenario screen (Step 3) directly — skipping Steps 1 and 2
+3. The `[Edit details]` link on the scenario screen still works — it navigates back to Step 1 as normal
+
+**Wireframe:**
+```
+Retirement Calculator — Scenarios           
+
+Choose a scenario to load
+
+  ┌──────────────────────┐   ┌──────────────────────┐
+  │  nigel-mimi          │   │  bob-alice           │
+  │                      │   │                      │
+  │  2 people            │   │  2 people            │
+  │  Load →              │   │  Load →              │
+  └──────────────────────┘   └──────────────────────┘
+
+  or  Start from scratch →  (links to /)
+```
+
+Each card shows the display name and a people count (derived from `people.length`).
+
+**Out of scope**: uploading a custom JSON file, editing scenario data on this page, any authentication.
+
+---
+
+### 3. Panel 2 — Other options you could consider
+
+As specified in `docs/ui/screens/retirement-scenario.md`. This panel fires two solve calls in parallel whenever the scenario screen receives a result from `POST /run`, and updates without any user interaction.
+
+**Trigger**: after every `POST /run` response (same cadence as the existing scenario screen).
+
+**The four compute cases** (full detail in the screen doc):
+
+| Survivability bucket | Left slot | Right slot |
+|---------------------|-----------|------------|
+| Buckets 1 & 2 (< 85% at 90) | `POST /solve/income` at current ages → sustainable £X/mo | `POST /solve/ages` for current income → required ages |
+| Buckets 3 & 4 (≥ 85% at 90) | `POST /solve/income` at current ages − 2 years → £X/mo if retired earlier | `POST /solve/ages` for income × 1.2 → ages needed for higher income |
+
+**Survivability threshold**: `probabilitySolvent` at age 90, interpolated from `survivalTable` using the existing `interpolateSolventAt` logic already in the UI.
+
+**Loading state**: while the solve calls are in flight, Panel 2 shows skeleton placeholders. If either call returns 422 (no solution), that slot shows a "Not available at this setting" message. If the main `POST /run` call is loading, Panel 2 is hidden entirely.
+
+**API calls**: use `targetSolvencyPct: 0.85`, `referenceAge: 90` for all Panel 2 solve calls. The `−2 years` floor is clamped so retirement age cannot go below `currentAge + 1`.
+
+---
+
+### 4. Panel 3 — Some options that might work for you
+
+As specified in `docs/ui/screens/retirement-scenario.md`. Three scenario cards computed from the Panel 2 results — no additional API calls beyond what Panel 2 already fires.
+
+**Card computation** (full detail in the screen doc):
+
+| Bucket | Left card | Middle card | Right card |
+|--------|-----------|-------------|------------|
+| 1 & 2 | Current ages + Panel 2 sustainable income | Mid-point ages + mid-point income | Panel 2 required ages + current income |
+| 3 & 4 | Ages − 2 + Panel 2 earlier income | Current ages + current income _(highlighted)_ | Panel 2 required ages for +20% income + higher income |
+
+The middle card for buckets 1 & 2 requires one additional `POST /solve/income` call at the mid-point ages.
+
+**Loading / unavailable**: Panel 3 is hidden while Panel 2 is loading. If a card cannot be computed (422), it is omitted; the panel shows only the remaining 1 or 2 cards.
+
+**Each card displays:**
+- Retirement ages (one line per person: "Bob 62 · Alice 59")
+- Monthly income (in today's money)
+- "to age 90+" label
+- Highlighted border + "your current plan" label on the current-plan card
+
+---
+
+### 5. Server-side unit tests
+
+Add a Node.js test suite covering the simulation engine (`math.js`) and the core run logic (`run.js`). Tests should be runnable with `npm test` from the `server/` directory.
+
+**Test framework**: Node's built-in `node:test` + `assert` — no external test runner needed.
+
+**`math.js` tests:**
+- `sampleNormal`: check that 10,000 samples have mean ≈ 0 and std dev ≈ 1 (within ±0.05)
+- `logNormalParams`: spot-check `{ mu, sigma }` for known `(mean, stdDev)` inputs
+- `percentile`: check p50 of `[1,2,3,4,5]` = 3; check p0 and p100 edge cases
+- `interpolateSolventAt`: exact hit, interpolation between two entries, below-range and above-range
+
+**`run.js` tests (integration, not unit):**
+- A single-person scenario with `withdrawalRate: 0` should have `probabilityOfRuin: 0`
+- A single-person scenario with `withdrawalRate: 10` (1,000%) should have `probabilityOfRuin: 1`
+- `annualIncomeMedian` should be approximately `accumulationSnapshot.real.p50 × withdrawalRate` (within 20%)
+- `survivalTable` should be monotonically non-increasing
+
+**`package.json` change** (server): add `"test": "node --test"` script; test files at `server/src/**/*.test.js`.
+
+---
+
+### Acceptance criteria (v0.8)
+
+1. Navigating to `/scenarios` renders the scenario picker page with one card per file in `ui/src/scenarios/`.
+2. Clicking a scenario card skips the wizard and renders the scenario screen with that scenario's data.
+3. The `[Edit details]` link on the scenario screen loaded via `/scenarios` navigates correctly to Step 1.
+4. Navigating directly to `/` still starts at Step 1 of the wizard.
+5. Panel 2 renders live data (not placeholder) after the initial `POST /run` result is received.
+6. Panel 2 shows skeleton placeholders while solve calls are in flight.
+7. Panel 2 left slot shows "earlier retirement" income (bucket 3/4) or "sustainable income" (bucket 1/2) correctly depending on solvency.
+8. Panel 2 right slot shows "higher income ages" (bucket 3/4) or "work longer ages" (bucket 1/2) correctly.
+9. Panel 2 shows "Not available at this setting" if a solve call returns 422.
+10. Panel 3 renders three scenario cards (or fewer if a card cannot be computed) after Panel 2 is resolved.
+11. Panel 3 highlights the current-plan card in buckets 3/4.
+12. `npm test` in `server/` passes all unit tests.
+13. Panel 1 (Your Retirement Goal) is unaffected.
+
+---
+
+### Known limitations (v0.8)
+
+- Scenario cards in Panel 3 are not interactive (clicking them does not load that scenario into Panel 1)
+- `/scenarios` page is not linked from the main wizard; it must be navigated to directly
+- Panel 2 solve calls use 2,000 simulations (same as CLI solve) — results may vary slightly from `POST /run` (10,000 sims)
