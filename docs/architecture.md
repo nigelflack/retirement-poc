@@ -126,7 +126,7 @@ Each of 10,000 paths runs from today to `toAge` in one continuous loop:
 ## CLI
 
 **Entry point:** `cli/retirement.py`
-**Python:** 3.9
+**Python:** 3.9 — do not use `X | Y` union type syntax; use `Optional[X]` or omit type annotations.
 **Venv:** `.venv/` at project root
 
 ### Files

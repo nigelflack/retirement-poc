@@ -1,6 +1,6 @@
-# Development workflow
+# Product development workflow
 
-This document describes how work is structured in this project and what to do at each stage. Follow this process for any non-trivial change.
+This document describes how the AI-assisted digital product development methodology is structured. Follow this process for all work in this project.
 
 ---
 
@@ -10,11 +10,11 @@ This document describes how work is structured in this project and what to do at
 
 The documents in `docs/` are the source of truth — not the code, and not the AI's implicit understanding of the project. Before writing any code, the relevant doc should describe what you're building and why.
 
-This is not bureaucracy. It is what makes AI sessions coherent across time and what prevents scope drift.
-
 ---
 
 ## Authoritative documents
+
+The following specific documents must be maintained and should always be used as reference documentations for all work:
 
 | File | What it is for |
 |------|---------------|
@@ -24,11 +24,13 @@ This is not bureaucracy. It is what makes AI sessions coherent across time and w
 | `docs/current-state.md` | What is working right now, what is next, known issues. Keep this accurate. |
 | `docs/flow.md` | UI wireframes and screen flows. Update before writing UI code. |
 
+The most important document is `docs/spec.md`. DO NOT implement code changes that are not acceptably documented here. BE STRICT with the user and push back on this point.
+
 ---
 
-## Iteration loop
+## Iterative building
 
-Each version (v0.n) follows this sequence:
+Objectives and requirements must be defined in the docs before building. This approach uses an iterative approach - each version of the product should be defined in v0.1, v0.2, v0.3 etc. rather than a big bang spec defined up front. However, each iteration MUST be acceptably defined in the documentation before implementing.
 
 ### 1. Define the iteration
 
@@ -36,26 +38,26 @@ Write the next version section in `docs/spec.md`. Include:
 - what's new
 - what's out of scope / deferred
 - any input/output changes
-- CLI and UI changes if relevant
+- acceptance checks — how you will know the iteration is done
 
 Do not start implementation until this exists.
 
 ### 2. Update design artefacts
 
 - If the API contract changes, update `docs/architecture.md`
-- If a screen or user flow changes, update `docs/flow.md` (or the relevant file under `docs/ui/`)
+- If a screen or user flow changes, update `docs/flow.md` and other relevant file(s) under `docs/ui/`)
 
 ### 3. Implement
 
-Build the changes. Follow the layer separation defined in `docs/architecture.md` for this project.
+Build the changes. Follow the architecture defined in `docs/architecture.md`.
 
 ### 4. Validate
 
-Exercise the new behaviour against the acceptance checks in the spec. Use whatever validation harness the project defines (CLI, test suite, manual review).
+Exercise the new behaviour against the acceptance checks defined in `docs/spec.md` for this iteration. Use whatever validation harness the project defines (CLI, test suite, manual review).
 
 ### 5. Implement UI (if applicable)
 
-Build or update UI only after backend validation passes. Compare the result against `docs/flow.md`.
+Build or update UI only after backend validation passes. Compare the result against `docs/flow.md` (or the relevant file under `docs/ui/`).
 
 ### 6. Close the iteration
 
@@ -67,7 +69,7 @@ Build or update UI only after backend validation passes. Compare the result agai
 
 ## Adding a new feature mid-iteration
 
-If something new comes up that isn't in the current spec:
+If something new comes up that isn't in the current spec, or if a user requests to enhance or refine a just-implemented feature:
 
 1. Decide: is it in scope for this iteration, or deferred to the next?
 2. If in scope: add it to `docs/spec.md` before implementing
