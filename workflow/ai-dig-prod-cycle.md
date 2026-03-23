@@ -5,7 +5,9 @@
 
 ## Executive summary
 
-AI-assisted coding is often framed as a loose, improvisational activity. In practice, it becomes far more effective when treated as a disciplined product development method rather than an ad hoc code generation tool.
+This paper describes a working model for AI-assisted digital product development, developed and refined by the author through experience building a project over many iterations. It is an illustration of techniques that the author believes may be more widely applicable, shared here as a starting point for discussion rather than a definitive prescription.
+
+AI-assisted coding is often framed as a loose, improvisational activity. In the author's experience, it becomes far more effective when treated as a disciplined product development method rather than an ad hoc code generation tool.
 
 This paper outlines a practical operating model for **AI-assisted digital product development**. The approach is built around a small number of durable principles:
 
@@ -39,7 +41,7 @@ The approach described in this paper has a particular bias: it assumes that spee
 
 ## 2. The core problem with unstructured AI coding
 
-Used without a defined operating model, AI-assisted coding often exhibits predictable failure modes:
+Working without a defined operating model, the author observed the following failure modes emerge repeatedly:
 
 - business logic leaks into presentation layers
 - architectural boundaries blur
@@ -49,11 +51,9 @@ Used without a defined operating model, AI-assisted coding often exhibits predic
 - multiple sessions produce inconsistent design and implementation choices
 - future work becomes harder because the rationale for prior decisions is lost
 
-These failure modes are not unique to AI, but AI amplifies them by making it cheap to create plausible-looking output quickly.
+These failure modes are not unique to AI, but AI amplifies them by making it cheap to create plausible-looking output quickly. The result is often a prototype that appears productive in the short term, but becomes difficult to reason about, extend, or hand over.
 
-The result is often a prototype that appears productive in the short term, but becomes difficult to reason about, extend, or hand over.
-
-The answer is not to abandon AI assistance. The answer is to apply it inside a stronger working model.
+These observations form the basis for the model described in this paper.
 
 ## 3. Core design principles
 
@@ -70,6 +70,8 @@ A typical early structure may involve:
 - later clients as needed: native iOS app, web UI in React or Angular
 
 The exact stack may vary, but the principle remains the same: **presentation is not the home of business logic**.
+
+This separation also implies a build sequence. In general: build and confirm backend and domain logic first, before investing in any UI layer. UI work done before backend behaviour is confirmed tends to get revisited — either because the API changes, or because assumptions about data turn out to be wrong.
 
 ### 3.2 Use iterative specification rather than large upfront design
 
@@ -92,12 +94,12 @@ This gives AI a bounded planning horizon and reduces the risk of uncontrolled sc
 AI interacts more reliably with structured text than with images or ambiguous verbal descriptions. Text-first artefacts are therefore valuable not only for human clarity, but also for machine usability.
 
 Useful artefacts include:
-- the active iteration spec (`spec.md`) — one iteration at a time
-- archived iteration specs (`docs/iterations/`) — one file per completed version
+- the governing system description (`spec.md`) — always-current, updated when an iteration closes
+- the active iteration plan (`docs/iterations/vX-Y.md`) — written before an iteration starts
 - ASCII UI wireframes
 - architecture notes
 - decision logs
-- current-state handoff notes
+- session handover notes
 
 ### 3.4 Validate interaction flow before polished UI
 
@@ -147,24 +149,69 @@ The monorepo usually remains effective well into prototype, PoC, and early produ
 
 A practical workflow for each iteration is:
 
-1. define the next iteration
-2. update the spec
-3. update relevant UI wireframes if screens or flows change
-4. update architecture or decisions if needed
-5. validate documentation readiness
-6. implement backend/domain changes
-7. exercise flows via CLI
-8. implement web/mobile UI if appropriate
-9. update current-state and close the iteration
+1. define the next iteration in `docs/iterations/vX-Y.md`
+2. update relevant UI wireframes if screens or flows change
+3. update architecture or decisions if needed
+4. validate documentation readiness
+5. implement backend/domain changes
+6. exercise flows via CLI
+7. implement web/mobile UI if appropriate
+8. update `docs/spec.md` with implementation details
+9. update other authoritative documents and close the iteration
 
 This loop is deliberately lightweight, but it imposes a clear order:
 **understand and document first, then implement**.
 
-## 5. The role of ASCII wireframes
+Three techniques within this model deserve particular attention: the CLI as first client, ASCII wireframes, and documentation as operating memory. The following sections examine each in detail.
+
+## 5. The role of the CLI as first client
+
+A scripted command-line client deserves particular attention as a technique. It is not a necessary part of this model, but it has proven highly effective and is worth adopting deliberately when the conditions suit it.
+
+It is the practical expression of a backend-first development sequence. Build backend logic first; use the CLI to confirm it behaves correctly; move to UI only once the foundation is stable. This keeps logic validation cheap and prevents UI investment from running ahead of proven behaviour.
+
+The approach used in this project was a Python CLI client calling the backend API. The choice of Python is not critical — what matters is having a lightweight, scriptable client that exercises real backend behaviour without any UI investment.
+
+### 5.1 Why CLI first
+
+A CLI client is:
+- fast to write — a basic interactive loop and HTTP call takes minutes
+- cheap to change — no rendering logic, no state management, no visual regression
+- directly exercisable — run a scenario, inspect the output, re-run immediately
+- readable by AI — plain text output is easy for an AI to analyse and validate
+- decoupled from design — lets you test workflows before any UX decisions are made
+
+In the retirement planning project, the CLI allowed the Monte Carlo simulation, income target model, and solve endpoints to be fully validated — including edge cases and failure modes — before a single UI component was written.
+
+### 5.2 What the CLI validates
+
+CLI is the right tool when the main uncertainty is:
+- does the backend logic behave correctly?
+- is the API contract right?
+- does the end-to-end workflow make sense?
+- are the domain rules implemented correctly?
+
+These are questions the CLI can answer cheaply. They are expensive to answer through a UI layer because UI bugs and logic bugs become hard to separate.
+
+### 5.3 What the CLI cannot validate
+
+CLI cannot answer:
+- is this navigable?
+- is the information hierarchy clear?
+- does a real user understand what to do?
+- does the visual layout communicate the right things?
+
+These become the relevant questions once backend behaviour is confirmed. That is the signal to move to real UI.
+
+### 5.4 CLI validation and automated testing
+
+The CLI functions as a test harness in all but name: it exercises real backend behaviour, confirms API contracts, and surfaces logic errors before UI investment. At prototype and early product stages, this is often sufficient. The feedback loop is fast, the output is human-readable, and AI can review it directly. As a product matures, however, CLI validation is not a substitute for a formal test suite. Unit tests give regression protection that a manually-run CLI cannot. Integration tests confirm behaviour across failure paths and edge cases that are tedious to exercise interactively. The practical path is additive: start with CLI validation to confirm the design is right, then layer in automated tests as the implementation stabilises and the cost of regression rises.
+
+## 6. The role of ASCII wireframes
 
 ASCII wireframes deserve particular attention because they occupy an unusual but highly effective position in AI-assisted development.
 
-### 5.1 Why ASCII works
+### 6.1 Why ASCII works
 
 ASCII wireframes are:
 
@@ -180,7 +227,7 @@ They support thinking about:
 - how users move between screens
 - what actions and states matter
 
-### 5.2 Scaling the wireframe approach
+### 6.2 Scaling the wireframe approach
 
 At very small scale, it is possible to document an entire user flow in one file. This breaks down quickly once screens are reused, flows branch, or state complexity increases.
 
@@ -189,14 +236,14 @@ A more scalable model is:
 - one file per flow
 - one file per screen
 
-For example:
+For example, in a retirement planning tool:
 
-- `flows/debrief-review-flow.md`
-- `screens/flight-review.md`
+- `flows/retirement-planning.md` — the main wizard journey from inputs to scenario screen
+- `screens/retirement-scenario.md` — the scenario screen: solvency bar, solve results, scenario cards
 
 The flow file describes the journey. The screen file describes the screen contract, including the ASCII layout and interaction notes.
 
-### 5.3 Role after real UI exists
+### 6.3 Role after real UI exists
 
 ASCII wireframes should not be discarded once web or mobile UI exists. Instead, their role changes.
 
@@ -209,7 +256,7 @@ After real UI exists, they remain the preferred planning artefact for:
 
 In this mature role, they define intent while real UI code provides platform-specific execution.
 
-## 6. Documentation as operating memory
+## 7. Documentation as operating memory
 
 One of the most important lessons in AI-assisted development is that documentation is not primarily for compliance. It is for continuity.
 
@@ -219,21 +266,22 @@ Without a lightweight documentation layer, both humans and AI lose track of:
 - which changes are intentional
 - what remains in scope or deferred
 
-### 6.1 Minimum durable document set
+### 7.1 Minimum durable document set
 
 A useful baseline set is:
 
-- `spec.md` — the current system description (domain model, rules, features)
+- `spec.md` — the current system description (domain model, rules, features); updated when an iteration closes
 - `docs/iterations/` — one file per iteration; written before starting, kept as permanent record after closing
 - `docs/backlog.md` — candidate items not yet in an iteration; input to iteration planning
 - `ai-handover.md` — current version, known issues, how to run; the session start document
-- `ui-wireframes/` — flow and screen artefacts
+- `docs/ui/flows/` and `docs/ui/screens/` — flow and screen artefacts
 - `architecture.md` — current system structure and boundaries
+- `api.md` — API endpoint contracts; updated when any endpoint changes
 - `decisions.md` — decision log and rationale
 
 This is not burdensome, but it provides enough continuity to make repeated AI-assisted sessions much more coherent.
 
-### 6.2 Documentation gates
+### 7.2 Documentation gates
 
 Documentation becomes more effective when it is treated as a gate rather than a suggestion.
 
@@ -252,77 +300,15 @@ A post-implementation gate might require:
 
 This turns AI into a process enforcer, not just a generator.
 
-## 7. Transition points: CLI, web UI, mobile UI
-
-A common early pattern is to use a Python CLI as the first client. This is often extremely effective because it is fast, cheap, and useful for testing backend workflows.
-
-### 7.1 When CLI is sufficient
-
-CLI remains appropriate when the main uncertainty is:
-- backend behaviour
-- workflow validity
-- API contract design
-- core logic correctness
-
-### 7.2 When to introduce real UI
-
-Move to web or mobile UI when the main uncertainty becomes:
-- usability
-- flow friction
-- navigation clarity
-- visual hierarchy
-- real-user interaction comfort
-
-This shift usually marks a transition from “can the system do this?” to “is this a good user experience?”
-
-### 7.3 Suggested sequence
-
-A good default sequence is:
-
-1. spec the feature
-2. update ASCII wireframes
-3. build or adjust backend
-4. validate via CLI
-5. build real UI
-6. compare UI against wireframe intent
-7. refine both code and docs
-
-This preserves planning discipline even after real UI work begins.
-
-## 8. Starter packs and reusable operating models
-
-Much of the value in AI-assisted development comes from reducing setup cost and preserving consistency across projects. A starter pack can help achieve this.
-
-A good starter pack should include both **technical scaffolding** and **workflow scaffolding**.
-
-### 8.1 Technical scaffolding
-
-Typical elements:
-- monorepo layout
-- backend service shell
-- Python CLI shell
-- shared types or contracts package
-- scripts for setup, seed, and run
-- one example end-to-end feature
-
-### 8.2 Workflow scaffolding
-
-Typical elements:
-- working model file
-- documentation requirements file
-- spec template
-- screen and flow templates
-- architecture template
-- decision log template
-- current-state template
-
-This allows new work to begin from an established operating model rather than from a blank slate.
-
-## 9. AI governance through repository structure
+## 8. AI governance through repository structure
 
 It is not possible to guarantee that a general-purpose AI assistant will follow a preferred development method perfectly in every case. However, it is possible to make the preferred approach the dominant context.
 
-### 9.1 VS Code + GitHub Copilot with Claude Sonnet — specific mechanisms
+The general mechanism is the same across tools: inject persistent, structured instructions into the AI's context so that the preferred working model is active on every request, without relying on the user to re-state it each session.
+
+The specific mechanism varies by tool. The example below uses **VS Code + GitHub Copilot with Claude Sonnet**, which is the toolchain used to develop the model described in this paper. Other AI coding environments offer equivalent capabilities under different names.
+
+### 8.1 VS Code + GitHub Copilot — specific mechanisms
 
 VS Code Copilot provides structured mechanisms for injecting persistent instructions into AI sessions. These are not hints or suggestions — they become part of the model's context on every request where they apply.
 
@@ -339,11 +325,12 @@ This is the right place for:
 
 Example content:
 
-```markdown
+```
 ## Development rules
 
-- Do not implement undocumented scope. If a feature is not in spec.md, ask before building it.
+- Do not implement anything not defined in the current iteration plan. Push back if asked to skip this.
 - Do not place business logic in UI components.
+- Do not implement new UI capabilities without first documenting them as flows and ASCII wireframes.
 - After each meaningful implementation step, update docs/ai-handover.md.
 - Record material technical decisions in docs/decisions.md.
 - Do not skip the CLI validation step before building real UI.
@@ -410,7 +397,7 @@ For example, a `spec-writer` agent could be configured to only edit markdown fil
 
 Additional instructions can be set in VS Code user settings under `github.copilot.chat.codeGeneration.instructions`. These apply across all workspaces for the current user and are combined with any repo-level instructions. Use this for personal preferences (e.g. preferred formatting, language style) rather than project-specific rules.
 
-### 9.2 Recommended setup for this operating model
+### 8.2 Recommended setup for this operating model
 
 A minimal but effective governance setup:
 
@@ -420,15 +407,15 @@ A minimal but effective governance setup:
 | `server/.instructions.md` | Backend-specific constraints (validation, no raw paths, etc.) |
 | `frontend/.instructions.md` | UI layer constraints (no business logic, data access patterns) |
 | `docs/prompts/spec-review.prompt.md` | Trigger a spec vs. implementation consistency check |
-| `docs/prompts/update-current-state.prompt.md` | Trigger a current-state documentation update |
+| `docs/prompts/update-ai-handover.prompt.md` | Trigger a session handover documentation update |
 
 This setup requires no manual context injection — the rules are always active when working in the relevant parts of the codebase.
 
-## 10. Stage-based maturity model
+## 9. Stage-based maturity model
 
 Not every stage of development requires the same level of rigor. A practical model introduces stronger controls over time.
 
-### 10.1 Prototype stage
+### 9.1 Prototype stage
 Focus:
 - speed
 - architecture shape
@@ -436,7 +423,7 @@ Focus:
 - low-friction documentation
 - manual testing acceptable
 
-### 10.2 MVP stage
+### 9.2 MVP stage
 Focus:
 - clearer iteration boundaries
 - more complete UI states
@@ -444,7 +431,7 @@ Focus:
 - better continuity across sessions
 - more explicit acceptance checks
 
-### 10.3 Pre-release stage
+### 9.3 Pre-release stage
 Focus:
 - error handling
 - broader test coverage
@@ -452,7 +439,7 @@ Focus:
 - stronger non-functional requirements
 - more formal handoff readiness
 
-### 10.4 Production stage
+### 9.4 Production stage
 Focus:
 - operational resilience
 - security and governance
@@ -462,26 +449,7 @@ Focus:
 
 This staged approach prevents over-engineering too early while still giving a path toward industrialization.
 
-## 11. Benefits of the model
-
-When applied well, this operating model offers several advantages.
-
-### 11.1 Faster structured delivery
-AI accelerates both planning and implementation, but within a bounded method.
-
-### 11.2 Better alignment across sessions
-Durable artefacts help both humans and AI recover the project state quickly.
-
-### 11.3 Lower design-to-code friction
-ASCII wireframes and iteration specs give AI a clear intermediate representation between idea and implementation.
-
-### 11.4 Stronger architecture discipline
-Explicit separation of concerns reduces the risk of fast but fragile product evolution.
-
-### 11.5 Easier transition from prototype to product
-Because the workflow already includes architecture, decisions, and flow artefacts, the path to a more mature product is less chaotic.
-
-## 12. Limitations and cautions
+## 10. Limitations and cautions
 
 This approach is practical, but not universal.
 
@@ -497,7 +465,7 @@ Potential limitations include:
 The model therefore depends on maintaining balance:
 enough structure to preserve coherence, but not so much that it undermines iteration speed.
 
-## 13. Conclusion
+## 11. Conclusion
 
 AI-assisted development becomes substantially more effective when understood not as a coding trick, but as a structured digital product development cycle.
 
@@ -562,7 +530,7 @@ Examples of useful repository rules:
 - Do not place business logic in UI layers.
 - Use the Python CLI as the default early client for backend workflow validation.
 - Do not implement undocumented scope unless explicitly instructed.
-- Update current-state after each meaningful implementation step.
+- Update the session handover document after each meaningful implementation step.
 - Record material technical decisions in the decision log.
 
 ## Appendix C: Example screen documentation structure
