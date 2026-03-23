@@ -6,7 +6,8 @@
       "accounts": [
         { "name": "Standard Life", "type": "pension", "currentValue": 140000, "monthlyContribution": 800 },
         { "name": "Vanguard SIPP", "type": "pension", "currentValue": 190000, "monthlyContribution": 1600 },
-        { "name": "Vanguard ISA", "type": "isa", "currentValue": 61000, "monthlyContribution": 1600 }
+        { "name": "Vanguard ISA", "type": "isa", "currentValue": 61000, "monthlyContribution": 1600 },
+        { "name": "Car", "type": "isa", "currentValue": 35000, "monthlyContribution": 0 }
       ],
       "statePension": { "fromAge": 67, "annualAmount": 12000 }
     },
@@ -14,8 +15,9 @@
       "name": "Mimi",
       "currentAge": 46,
       "accounts": [
-        { "name": "Scottish Widows", "type": "pension", "currentValue": 50000, "monthlyContribution": 0 },
-        { "name": "ISA", "type": "isa", "currentValue": 20000, "monthlyContribution": 100 }
+        { "name": "Scottish Widows", "type": "pension", "currentValue": 40000, "monthlyContribution": 0 },
+        { "name": "ISA", "type": "isa", "currentValue": 20000, "monthlyContribution": 100 },
+        { "name": "Shares", "type": "isa", "currentValue": 30000, "monthlyContribution": 0 }
       ],
       "statePension": { "fromAge": 67, "annualAmount": 10000 }
     }
