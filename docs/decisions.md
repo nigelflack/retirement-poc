@@ -162,6 +162,30 @@ Decisions recorded in version order. Each entry explains what was decided and wh
 **Decided:** The `--test` flag, `run_tests()` function, and `interpolate_solvent_at()` formatter helper are all removed. Input files renamed from `nigel.json`/`example.json` to `nigel-mimi.json`/`bob-alice.json`.
 **Rationale:** The test fixture files (`test_*.json`) conflated personal data with test assertions. Renaming to person-pair names makes the purpose of each file clear. With the test harness gone, `interpolate_solvent_at` in the CLI had no remaining caller.
 
+---
+
+## v0.8
+
+### Scenario files bundled in the UI, not served from the API
+**Decided:** Pre-built scenarios (`nigel-mimi.json`, `bob-alice.json`) are imported as static JSON modules in `ui/src/scenarios/`. No server endpoint serves them.
+**Rationale:** Keeps the API surface clean — scenario loading is a UI concern, not a backend one. Vite bundles the JSON at build time so they add no runtime HTTP call. Display names are derived directly from the import key (filename without `.json`).
+
+### Scenario loader jumps to Step 3, not Step 1
+**Decided:** Clicking a scenario card navigates to `/` with `{ state: { people } }` in the router location state. `App` reads `location.state?.people` on mount; if present it initialises at step 3.
+**Rationale:** The wizard steps 1 and 2 collect data that is already encoded in the scenario file. Skipping to the scenario screen is the right UX — the user loaded a scenario to see results immediately, not to re-enter data they already have.
+
+### Panel 2 fires after every `POST /run` response via `useEffect([lastResult])`
+**Decided:** A `useEffect` keyed to `lastResult` fires the two Panel 2 solve calls. A monotonically-incrementing `p2RunIdRef` guards against stale results from previous runs.
+**Rationale:** Panel 2 must update whenever Panel 1 updates (income or age change). Reacting to `lastResult` change is the cleanest hook point — it fires once per completed run and carries `prevRetirementAges.current`/`prevMonthlyIncome.current` for the solve payloads.
+
+### Panel 3 cards derived without additional API calls (except low-bucket middle card)
+**Decided:** Panel 3 reuses Panel 2 results to compute its three cards directly. The only exception is the low-bucket middle card, which requires one extra `solve/income` call at the mid-point ages.
+**Rationale:** Three `POST /run` calls just to populate static display cards would be wasteful and slow. Panel 2's left/right results contain all the income and age data needed. The mid-point call is unavoidable since the mid-point income is not derivable from Panel 2 output alone.
+
+### Server tests use `node:test` with no external runner
+**Decided:** Tests live in `server/src/simulation/*.test.js` and run via `node --test` (Node 18+ built-in runner).
+**Rationale:** Avoids adding `jest` or `mocha` as a dev dependency. `node:test` + `assert/strict` covers everything needed for pure-function and integration tests at this scale. Test discovery is automatic for `*.test.js` files.
+
 ### CLI `--solve income` and `--solve ages` modes added
 **Decided:** A `--solve {income,ages}` argument is added to the CLI. Each mode has its own prompt sequence and re-run loop. The `--input` flag remains required for all modes.
 **Rationale:** The solve endpoints existed since v0.7 but were only accessible via raw HTTP. These modes make them first-class citizens of the CLI workflow alongside normal `POST /run` mode, with the same re-run loop pattern and previous-value retention.

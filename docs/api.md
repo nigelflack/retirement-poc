@@ -1,0 +1,216 @@
+# API Reference
+
+Server runs on port 3000 (override with `PORT` env var). All endpoints accept and return JSON.
+
+For the simulation model that underpins all three endpoints, see `docs/architecture.md`.
+
+---
+
+## `POST /run`
+
+Run a full single-pass Monte Carlo simulation (accumulation + drawdown) and return percentile results.
+
+### Request
+
+```json
+{
+  "people": [
+    {
+      "name": "Alice",
+      "currentAge": 40,
+      "retirementAge": 62,
+      "accounts": [
+        { "name": "SIPP", "currentValue": 100000, "monthlyContribution": 500 }
+      ],
+      "statePension": { "annualAmount": 11500, "fromAge": 67 }
+    }
+  ],
+  "withdrawalRate": 0.04,
+  "toAge": 100
+}
+```
+
+- `retirementAge` — each person's intended retirement age; household retirement is the earliest across all people
+- `accounts[].currentValue` — current pot value in today's £
+- `accounts[].monthlyContribution` — monthly contribution until retirement
+- `statePension` — optional; amounts in today's money, inflated in simulation
+- `withdrawalRate` — fraction of the real pot at retirement taken as annual income target
+- `toAge` — simulation horizon (default `100` if omitted)
+
+### Response
+
+```json
+{
+  "numSimulations": 10000,
+  "householdRetirementAge": 62,
+  "householdRetirementName": "Alice",
+  "accumulationSnapshot": {
+    "yearsToRetirement": 22,
+    "nominal": { "p10": ..., "p25": ..., "p50": ..., "p75": ..., "p90": ... },
+    "real":    { "p10": ..., "p25": ..., "p50": ..., "p75": ..., "p90": ... }
+  },
+  "withdrawalRate": 0.04,
+  "annualIncomeMedian": 45000,
+  "annualIncomeP10": 32000,
+  "annualIncomeP90": 61000,
+  "statePensions": [{ "name": "Alice", "annualAmount": 11500, "fromAge": 67 }],
+  "probabilityOfRuin": 0.04,
+  "survivalTable": [
+    { "age": 70, "probabilitySolvent": 0.96 },
+    { "age": 75, "probabilitySolvent": 0.91 },
+    ...
+  ],
+  "portfolioPercentiles": {
+    "byAge": [
+      { "age": 63, "nominal": [p1, p2, ..., p99] },
+      ...
+    ]
+  }
+}
+```
+
+- `accumulationSnapshot` — household portfolio at the retirement year (nominal and real percentiles)
+- `annualIncome*` — in today's money (real terms)
+- `survivalTable` — probability of remaining solvent at 5-year intervals from retirement+5 to `toAge`
+- `portfolioPercentiles.byAge[n].nominal` — 99-element array (index 0 = p1, index 98 = p99); one entry per year from `currentAge+1` to `toAge`
+- Raw simulation paths are never returned
+
+---
+
+## `POST /solve/income`
+
+Binary-search for the maximum sustainable monthly income at fixed retirement ages and a given solvency target.
+
+### Request
+
+```json
+{
+  "people": [ ...same shape as POST /run... ],
+  "toAge": 100,
+  "targetSolvencyPct": 0.85,
+  "referenceAge": 90,
+  "tolerance": 0.02
+}
+```
+
+- `targetSolvencyPct` — desired probability of solvency at `referenceAge`, as a decimal (e.g. `0.85`)
+- `referenceAge` — age at which solvency is measured
+- `tolerance` — convergence band around `targetSolvencyPct`; default `0.02` (2 pp)
+
+### Response
+
+```json
+{
+  "monthlyIncome": 2600,
+  "withdrawalRate": 0.038,
+  "survivalAtReferenceAge": 0.852
+}
+```
+
+### Algorithm
+
+Binary search over `monthlyIncome` from £0 to a ceiling of `accumulationSnapshot.real.p50 / 12`. Each iteration derives `withdrawalRate = (monthlyIncome × 12) / real.p50`, runs the simulation, and checks whether `interpolateSolventAt(survivalTable, referenceAge)` is within `tolerance` of `targetSolvencyPct`. Capped at 50 iterations. Each search iteration uses 2,000 simulations (vs 10,000 for `/run`).
+
+### Error responses
+
+| Condition | HTTP | Body |
+|-----------|------|------|
+| Missing / malformed `people` | 400 | `{ "error": "people is required..." }` |
+| `targetSolvencyPct` not in (0, 1) | 400 | `{ "error": "targetSolvencyPct must be between 0 and 1 exclusive" }` |
+| `referenceAge` not a positive integer | 400 | `{ "error": "referenceAge must be a positive integer" }` |
+| `tolerance` not in (0, 1) | 400 | `{ "error": "tolerance must be between 0 and 1 exclusive" }` |
+| Cannot converge | 422 | `{ "error": "Could not find a sustainable income within the simulation bounds" }` |
+
+---
+
+## `POST /solve/ages`
+
+Binary-search for the earliest retirement ages at which a household can sustain a given monthly income at a target solvency level.
+
+### Request
+
+```json
+{
+  "people": [
+    {
+      "name": "Bob",
+      "currentAge": 50,
+      "retirementAge": 55,
+      "accounts": [...],
+      "statePension": { "annualAmount": 9000, "fromAge": 67 }
+    }
+  ],
+  "monthlyIncome": 3000,
+  "toAge": 100,
+  "targetSolvencyPct": 0.85,
+  "referenceAge": 90
+}
+```
+
+- `retirementAge` in each person object is the **floor** — the earliest retirement age to search from
+
+### Response
+
+```json
+{
+  "retirementAges": [
+    { "name": "Bob", "retirementAge": 64 },
+    { "name": "Alice", "retirementAge": 59 }
+  ],
+  "monthlyIncome": 3000,
+  "survivalAtReferenceAge": 0.863
+}
+```
+
+### Algorithm
+
+Binary search over an age offset `[0, 20]` years added uniformly to all persons' floor `retirementAge`. At each step, the simulation is run at the candidate ages; if solvency ≥ target, the offset is a candidate and the search tries smaller values; otherwise it searches higher. Returns the lowest passing offset. Each search iteration uses 2,000 simulations. Capped at ~6 iterations (sufficient for a 20-year window).
+
+### Error responses
+
+| Condition | HTTP | Body |
+|-----------|------|------|
+| Missing / malformed `people` | 400 | `{ "error": "people is required..." }` |
+| `monthlyIncome` missing or ≤ 0 | 400 | `{ "error": "monthlyIncome must be a positive number" }` |
+| `targetSolvencyPct` not in (0, 1) | 400 | `{ "error": "targetSolvencyPct must be between 0 and 1 exclusive" }` |
+| `referenceAge` not a positive integer | 400 | `{ "error": "referenceAge must be a positive integer" }` |
+| Cannot reach target within 20-year window | 422 | `{ "error": "Could not find retirement ages that satisfy the solvency target" }` |
+
+---
+
+## Simulation configuration
+
+`server/config/simulation.json` — shared by all endpoints:
+
+```json
+{
+  "numSimulations": 10000,
+  "annualReturnMean": 0.07,
+  "annualReturnStdDev": 0.15,
+  "annualInflationMean": 0.025,
+  "annualInflationStdDev": 0.01
+}
+```
+
+Solve endpoints (`/solve/income`, `/solve/ages`) override `numSimulations` to `2000` per search iteration internally.
+
+---
+
+## CLI input format
+
+Input files in `cli/inputs/` supply people and account data. `retirementAge` is **not** included — it is prompted interactively at runtime.
+
+```json
+{
+  "people": [
+    {
+      "name": "Nigel",
+      "currentAge": 52,
+      "accounts": [
+        { "name": "SIPP", "type": "pension", "currentValue": 200000, "monthlyContribution": 800 }
+      ],
+      "statePension": { "fromAge": 67, "annualAmount": 11500 }
+    }
+  ]
+}
+```

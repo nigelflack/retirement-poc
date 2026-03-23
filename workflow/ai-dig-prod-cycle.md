@@ -92,7 +92,8 @@ This gives AI a bounded planning horizon and reduces the risk of uncontrolled sc
 AI interacts more reliably with structured text than with images or ambiguous verbal descriptions. Text-first artefacts are therefore valuable not only for human clarity, but also for machine usability.
 
 Useful artefacts include:
-- markdown iteration specs
+- the active iteration spec (`spec.md`) — one iteration at a time
+- archived iteration specs (`docs/iterations/`) — one file per completed version
 - ASCII UI wireframes
 - architecture notes
 - decision logs
@@ -222,11 +223,13 @@ Without a lightweight documentation layer, both humans and AI lose track of:
 
 A useful baseline set is:
 
-- `spec.md` — current and near-term iteration scope
+- `spec.md` — the current system description (domain model, rules, features)
+- `docs/iterations/` — one file per iteration; written before starting, kept as permanent record after closing
+- `docs/backlog.md` — candidate items not yet in an iteration; input to iteration planning
+- `ai-handover.md` — current version, known issues, how to run; the session start document
 - `ui-wireframes/` — flow and screen artefacts
 - `architecture.md` — current system structure and boundaries
 - `decisions.md` — decision log and rationale
-- `current-state.md` — what is working, what is next, known issues
 
 This is not burdensome, but it provides enough continuity to make repeated AI-assisted sessions much more coherent.
 
@@ -341,7 +344,7 @@ Example content:
 
 - Do not implement undocumented scope. If a feature is not in spec.md, ask before building it.
 - Do not place business logic in UI components.
-- After each meaningful implementation step, update docs/current-state.md.
+- After each meaningful implementation step, update docs/ai-handover.md.
 - Record material technical decisions in docs/decisions.md.
 - Do not skip the CLI validation step before building real UI.
 ```
@@ -386,9 +389,9 @@ Review the current spec.md. For each item marked as complete, confirm the implem
 List any mismatches or items that appear incomplete.
 ```
 
-`docs/prompts/update-current-state.prompt.md`
+`docs/prompts/update-ai-handover.prompt.md`
 ```markdown
-Read the current codebase and update docs/current-state.md to accurately reflect:
+Read the current codebase and update docs/ai-handover.md to accurately reflect:
 - what is working
 - what is in progress
 - known issues
@@ -529,10 +532,15 @@ A minimal project structure might include:
   AI_WORKFLOW_RULES.md
   README.md
   /docs
-    spec.md
+    spec.md            ← current system description
     architecture.md
     decisions.md
-    current-state.md
+    ai-handover.md
+    backlog.md
+    /iterations        ← one file per completed iteration
+      v0-1.md
+      v0-2.md
+      ...
     /ui
       /flows
       /screens

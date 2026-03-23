@@ -24,10 +24,12 @@ The central discipline is simple: **document intent before implementing it**.
 
 Each document has a distinct job. Using the wrong one for the wrong purpose causes confusion:
 
-- `spec.md` — what to build and when. Not how. Not why.
+- `spec.md` — what the system currently does. The living product description: domain model, rules, features. Updated after each iteration closes to reflect the new reality.
+- `docs/iterations/` — one file per iteration. Written before an iteration starts (the plan), and kept as the permanent record after it closes. This is where you define the next increment of work.
 - `architecture.md` — how the system is structured and what constraints apply. Not where you are in the work.
 - `decisions.md` — why non-obvious choices were made. Write here when you made a trade-off that a future reader (or AI session) would otherwise question.
-- `current-state.md` — a snapshot of reality right now. The most frequently stale document; keep it honest.
+- `ai-handover.md` — current version, what is in progress, known issues, how to run. The session start document. Narrow in scope by design — for full system understanding read `spec.md`.
+- `backlog.md` — candidate items not yet in an iteration. The input to iteration planning.
 - `flow.md` / `docs/ui/` — what the UI looks like and how users move through it. Update this *before* writing UI code, not after.
 
 **The test for `decisions.md`:** if you can imagine a future AI session undoing a decision because there's no record of why it was made, write it down. The two-stage → single-pass API change is a good example.
@@ -104,7 +106,7 @@ AI is most useful when given a bounded task with clear context — not when aske
 
 **Good patterns:**
 - "Based on the current spec.md, implement section X"
-- "Update current-state.md to reflect what was just built"
+- "Update ai-handover.md to reflect what was just built"
 - "Review whether the implementation of route Y matches the architecture constraints in architecture.md"
 - "I want to add feature Z — is it in the current spec? Where should it go?"
 
@@ -113,14 +115,14 @@ AI is most useful when given a bounded task with clear context — not when aske
 - Letting AI make architectural decisions without updating decisions.md
 - Using AI to write extensive code before wireframes exist for new screens
 
-**Session continuity:** at the start of a new session, orient the AI with `current-state.md` before asking it to do anything. A well-maintained current-state document makes re-orientation take seconds rather than minutes.
+**Session continuity:** at the start of a new session, orient the AI with `ai-handover.md` before asking it to do anything. A well-maintained handover document makes re-orientation take seconds rather than minutes.
 
 ### Using `.prompt.md` files for repeatable tasks
 
 Prompt files (stored in `docs/prompts/`) let you invoke a structured task with a single reference. Useful examples:
 
 - **Spec review** — "check whether the implementation matches the current spec version"
-- **Current-state update** — "read the codebase and refresh current-state.md"
+- **Handover update** — "read the codebase and refresh ai-handover.md"
 - **Architecture audit** — "check whether any code violates the layer constraints in architecture.md"
 
 These turn process discipline into a low-friction habit.
@@ -131,7 +133,9 @@ These turn process discipline into a low-friction habit.
 
 **Skipping the spec update** — the most common shortcut, and the one that causes the most long-term damage. Even a brief bullet point in spec.md before implementing is enough.
 
-**Letting current-state.md go stale** — if it's out of date, it becomes noise rather than signal. Update it immediately after any meaningful change, not at the end of a session.
+**Forgetting to move deferred items to the backlog** — when closing an iteration, anything not shipped should go into `docs/backlog.md`, not just be noted in the iteration file and forgotten.
+
+**Letting ai-handover.md go stale** — if it's out of date, it becomes noise rather than signal. Update it immediately after any meaningful change, not at the end of a session.
 
 **Wireframing after building** — drawing the wireframe after the code exists defeats the purpose. The wireframe should constrain the code, not describe it.
 

@@ -18,11 +18,14 @@ The following specific documents must be maintained and should always be used as
 
 | File | What it is for |
 |------|---------------|
-| `docs/spec.md` | What is in scope for each version. Features must be here before they are built. |
-| `docs/architecture.md` | System structure, API contracts, stack, key constraints. Update when the system shape changes. |
+| `docs/spec.md` | Current system description — domain model, product rules, what the system does now. Updated when an iteration closes to reflect what was built. |
+| `docs/iterations/` | One file per iteration (`v0-1.md`, `v0-2.md`, …). Written before an iteration starts; becomes the permanent record when complete. The next iteration is planned here. |
+| `docs/architecture.md` | System structure, stack, key constraints, simulation model design. Update when the system shape changes. |
+| `docs/api.md` | API endpoint contracts — request/response shapes, error codes, algorithm notes. Update when any endpoint changes. |
 | `docs/decisions.md` | Why key decisions were made. Record anything non-obvious or that involved a trade-off. |
-| `docs/current-state.md` | What is working right now, what is next, known issues. Keep this accurate. |
-| `docs/flow.md` | UI wireframes and screen flows. Update before writing UI code. |
+| `docs/backlog.md` | Candidate work items not yet in an iteration. Review when planning the next iteration. |
+| `docs/ai-handover.md` | Current version, what is in progress, known issues, how to run. Keep accurate. |
+| `docs/ui/` | UI wireframes and screen flows — one file per user journey (`flows/`) and per screen (`screens/`). Update before writing UI code. |
 
 The most important document is `docs/spec.md`. DO NOT implement code changes that are not acceptably documented here. BE STRICT with the user and push back on this point.
 
@@ -34,7 +37,7 @@ Objectives and requirements must be defined in the docs before building. This ap
 
 ### 1. Define the iteration
 
-Write the next version section in `docs/spec.md`. Include:
+Review `docs/backlog.md` and write the iteration plan in `docs/iterations/vX-Y.md`. Include:
 - what's new
 - what's out of scope / deferred
 - any input/output changes
@@ -44,8 +47,8 @@ Do not start implementation until this exists.
 
 ### 2. Update design artefacts
 
-- If the API contract changes, update `docs/architecture.md`
-- If a screen or user flow changes, update `docs/flow.md` and other relevant file(s) under `docs/ui/`)
+- If the API contract changes, update `docs/api.md` and `docs/architecture.md` if the system shape changed
+- If a screen or user flow changes, update the relevant file(s) under `docs/ui/flows/` and `docs/ui/screens/`
 
 ### 3. Implement
 
@@ -57,12 +60,14 @@ Exercise the new behaviour against the acceptance checks defined in `docs/spec.m
 
 ### 5. Implement UI (if applicable)
 
-Build or update UI only after backend validation passes. Compare the result against `docs/flow.md` (or the relevant file under `docs/ui/`).
+Build or update UI only after backend validation passes. Compare the result against the relevant file under `docs/ui/`.
 
 ### 6. Close the iteration
 
-- Mark items complete or deferred in `docs/spec.md`
-- Update `docs/current-state.md`
+- Mark the iteration as complete in `docs/iterations/vX-Y.md`
+- Update `docs/spec.md` to reflect what the system now does
+- Update `docs/ai-handover.md`
+- Move any deferred items to `docs/backlog.md`
 - Record any material technical decisions in `docs/decisions.md`
 
 ---
@@ -83,12 +88,12 @@ Do not silently implement things that aren't in the spec.
 
 | Event | Documents to update |
 |-------|-------------------|
-| Starting a new iteration | `docs/spec.md` |
-| API contract changes | `docs/architecture.md` |
-| Screen or flow changes | `docs/flow.md` |
+| Starting a new iteration | `docs/iterations/vX-Y.md` (write the iteration plan) |
+| API contract changes | `docs/api.md` (and `docs/architecture.md` if system shape changed) |
+| Screen or flow changes | `docs/ui/` (relevant flow or screen file) |
 | Non-obvious technical decision | `docs/decisions.md` |
-| After any meaningful implementation | `docs/current-state.md` |
-| Feature complete or deferred | `docs/spec.md` |
+| After any meaningful implementation | `docs/ai-handover.md` |
+| Iteration complete | `docs/spec.md` (update system description), `docs/iterations/vX-Y.md` (mark complete), `docs/backlog.md` (move deferred items) |
 
 ---
 
@@ -96,8 +101,9 @@ Do not silently implement things that aren't in the spec.
 
 At the start of a new AI session, point the AI at the relevant docs:
 
-- `docs/current-state.md` — to recover where things are
-- `docs/spec.md` — to understand what the next iteration contains
+- `docs/ai-handover.md` — to recover where things are
+- `docs/spec.md` — to understand what the system currently does
+- `docs/iterations/` — to see the plan for the current iteration, or history of past ones
 - `docs/architecture.md` — if working on the server or API
 
 The `.github/copilot-instructions.md` file is injected automatically and lists these documents. The AI should read them before acting on any non-trivial request.
