@@ -1,11 +1,14 @@
 import { useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import PersonDetails from '@/components/wizard/PersonDetails'
 import Assets from '@/components/wizard/Assets'
 import ScenarioScreen from '@/components/scenario/ScenarioScreen'
 
 export default function App() {
-  const [step, setStep] = useState(1)
-  const [people, setPeople] = useState([])
+  const location = useLocation()
+  const initialPeople = location.state?.people ?? null
+  const [step, setStep] = useState(initialPeople ? 3 : 1)
+  const [people, setPeople] = useState(initialPeople ?? [])
 
   function handlePersonDetailsComplete(collectedPeople) {
     setPeople(collectedPeople)

@@ -1,7 +1,7 @@
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3000'
 
-export async function callRun(payload) {
-  const response = await fetch(`${SERVER_URL}/run`, {
+async function postJson(path, payload) {
+  const response = await fetch(`${SERVER_URL}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -11,4 +11,16 @@ export async function callRun(payload) {
     throw new Error(err.error || `Server error ${response.status}`)
   }
   return response.json()
+}
+
+export function callRun(payload) {
+  return postJson('/run', payload)
+}
+
+export function callSolveIncome(payload) {
+  return postJson('/solve/income', payload)
+}
+
+export function callSolveAges(payload) {
+  return postJson('/solve/ages', payload)
 }
