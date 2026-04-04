@@ -4,20 +4,37 @@
       "name": "Nigel",
       "currentAge": 52,
       "accounts": [
-        { "name": "Standard Life", "type": "pension", "currentValue": 140000, "monthlyContribution": 800 },
-        { "name": "Vanguard SIPP", "type": "pension", "currentValue": 190000,  "monthlyContribution": 1600 },
-        { "name": "Vanguard ISA", "type": "isa", "currentValue": 61000,  "monthlyContribution": 1600 }
+        { "name": "Standard Life", "type": "pension", "currentValue": 140000 },
+        { "name": "Vanguard SIPP", "type": "pension", "currentValue": 190000 },
+        { "name": "Vanguard ISA", "type": "isa", "currentValue": 61000 }
       ],
-      "statePension": { "fromAge": 67, "annualAmount": 12000 }
+      "statePension": { "fromAge": 67, "annualAmount": 12000 },
+      "contributionSchedule": [
+        { "fromYear": 0, "annualAmount": 48000 },
+        { "fromYear": 5, "annualAmount": 24000 }
+      ]
     },
     {
       "name": "Mimi",
       "currentAge": 46,
       "accounts": [
-        { "name": "Scottish Widows", "type": "pension", "currentValue": 50000,  "monthlyContribution": 0 },
-        { "name": "ISA", "type": "isa", "currentValue": 20000,  "monthlyContribution": 100 }
+        { "name": "Scottish Widows", "type": "pension", "currentValue": 50000 },
+        { "name": "ISA", "type": "isa", "currentValue": 20000 }
       ],
-      "statePension": { "fromAge": 67, "annualAmount": 10000 }
+      "statePension": { "fromAge": 67, "annualAmount": 10000 },
+      "contributionSchedule": [
+        { "fromYear": 0, "annualAmount": 1200 },
+        { "fromYear": 5, "annualAmount": 600 }
+      ]
     }
+  ],
+  "annualIncomeTarget": 48000,
+  "incomeSchedule": [
+    { "fromYear": 0, "annualAmount": 48000 },
+    { "fromYear": 20, "annualAmount": 36000 }
+  ],
+  "capitalEvents": [
+    { "year": 3, "amount": -100000 },
+    { "year": 15, "amount": 100000 }
   ]
 }

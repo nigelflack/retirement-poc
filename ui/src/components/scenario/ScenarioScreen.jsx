@@ -31,6 +31,14 @@ function solvencyLabel(probabilitySolventAt90) {
   return "At these settings, your money is very likely to last well into your 90s."
 }
 
+// --- Format large currency values as abbreviated strings for the breakdown track ---
+function fmtSnapK(n) {
+  if (n == null) return '\u2014'
+  if (n >= 1_000_000) return `\u00a3${(n / 1_000_000).toFixed(1)}m`
+  if (n >= 1_000) return `\u00a3${Math.round(n / 1_000)}k`
+  return `\u00a3${Math.round(n)}`
+}
+
 // --- Age spinner ---
 function AgeSpinner({ label, value, onChange, min, max, disabled }) {
   return (
@@ -102,12 +110,15 @@ function Panel2Slot({ title, loading, data, type }) {
 }
 
 // --- Panel 3 scenario card ---
-function ScenarioCard({ card, people }) {
+function ScenarioCard({ card, people, onClick }) {
   return (
-    <div className={cn(
-      'flex-1 rounded-lg border p-4 space-y-2',
-      card.highlighted ? 'border-primary bg-primary/5' : 'bg-card',
-    )}>
+    <div
+      className={cn(
+        'flex-1 rounded-lg border p-4 space-y-2 cursor-pointer transition-colors hover:border-primary',
+        card.highlighted ? 'border-primary bg-primary/5' : 'bg-card',
+      )}
+      onClick={onClick}
+    >
       {card.label && (
         <p className="text-xs font-semibold text-primary uppercase tracking-wide">{card.label}</p>
       )}
@@ -128,7 +139,16 @@ function ScenarioCard({ card, people }) {
   )
 }
 
-export default function ScenarioScreen({ people, onEditDetails }) {
+function validatePeopleFile(data) {
+  if (!data || !Array.isArray(data.people) || data.people.length === 0) return false
+  return data.people.every(p =>
+    typeof p.name === 'string' && p.name.trim() &&
+    typeof p.currentAge === 'number' &&
+    Array.isArray(p.accounts) && p.accounts.length > 0,
+  )
+}
+
+export default function ScenarioScreen({ people, onEditDetails, onEditAccounts, onPeopleLoad }) {
   const hasPartner = people.length > 1
   const primary = people[0]
   const partner = people[1] ?? null
@@ -156,23 +176,28 @@ export default function ScenarioScreen({ people, onEditDetails }) {
   const [p2Right, setP2Right] = useState(null)
   const [p3Mid, setP3Mid] = useState(null)          // extra solve/income for low-bucket middle card
 
+  // Breakdown / debug panel toggle state (persists across re-runs)
+  const [showBreakdown, setShowBreakdown] = useState(false)
+  const [showDebug, setShowDebug] = useState(false)
+
+  // Load/save state
+  const [loadError, setLoadError] = useState(null)
+  const fileInputRef = useRef(null)
+
   // Previous values to revert to on error
   const prevRetirementAges = useRef(defaultRetirementAges)
   const prevMonthlyIncome = useRef(3000)
   const debounceTimer = useRef(null)
   const p2RunIdRef = useRef(0)
 
-  // Build the POST /run payload
-  const buildPayload = useCallback((ages, income, p50) => {
-    const withdrawalRate = p50 && p50 > 0
-      ? Math.min(Math.max((income * 12) / p50, 0.001), 0.99)
-      : 0.04
+  // Build the POST /simulate payload
+  const buildPayload = useCallback((ages, income) => {
     return {
       people: people.map(p => ({
         ...p,
         retirementAge: ages[p.name],
       })),
-      withdrawalRate,
+      annualIncomeTarget: income * 12,
       toAge: 100,
     }
   }, [people])
@@ -181,7 +206,7 @@ export default function ScenarioScreen({ people, onEditDetails }) {
     setIsLoading(true)
     setError(null)
     try {
-      const result = await callRun(buildPayload(ages, income, p50))
+      const result = await callRun(buildPayload(ages, income))
       setLastResult(result)
       setLastRunAges(ages)
       setLastRunIncome(income)
@@ -276,6 +301,52 @@ export default function ScenarioScreen({ people, onEditDetails }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastResult])
 
+  // Save / Load handlers
+  function handleSave() {
+    const data = { people }
+    const filename = people.map(p => p.name.toLowerCase().replace(/\s+/g, '-')).join('-') + '.json'
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  function handleLoadClick() {
+    setLoadError(null)
+    fileInputRef.current?.click()
+  }
+
+  function handleFileChange(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result)
+        if (!validatePeopleFile(data)) {
+          setLoadError('Could not load file — invalid format.')
+          return
+        }
+        onPeopleLoad(data.people)
+      } catch {
+        setLoadError('Could not load file — invalid format.')
+      }
+      e.target.value = ''
+    }
+    reader.readAsText(file)
+  }
+
+  function handleCardClick(card) {
+    const newAges = { ...retirementAges, ...card.ages }
+    const newIncome = Math.round(card.monthlyIncome)
+    setRetirementAges(newAges)
+    setMonthlyIncome(newIncome)
+    scheduleRun(newAges, newIncome)
+  }
+
   // Handlers
   function handleAgeChange(personName, newAge) {
     let newAges = { ...retirementAges, [personName]: newAge }
@@ -365,6 +436,24 @@ export default function ScenarioScreen({ people, onEditDetails }) {
   const survivalAt90 = interpolateSolventAt(lastResult?.survivalTable, 90)
   const medianPot = lastResult?.accumulationSnapshot?.real?.p50 ?? null
 
+  // Breakdown derived values
+  const survivalDisplayRows = lastResult
+    ? lastResult.survivalTable.filter(row => (row.age - lastResult.householdRetirementAge) % 5 === 0)
+    : []
+  const snap = lastResult?.accumulationSnapshot?.real ?? null
+  const snapRange = snap ? snap.p90 - snap.p10 : 0
+  const snapTrackPct = (val) => {
+    if (!snap || snapRange <= 0) return '0%'
+    return `${((val - snap.p10) / snapRange * 100).toFixed(1)}%`
+  }
+
+  // Debug table derived values
+  const debugRefPerson = lastResult
+    ? (people.find(p => p.name === lastResult.householdRetirementName) ?? people[0])
+    : null
+  const currentYear = new Date().getFullYear()
+  const peopleWithSP = people.filter(p => p.statePension)
+
   const headerName = hasPartner
     ? `${primary.name} (${primary.currentAge}) and ${partner.name} (${partner.currentAge})`
     : `${primary.name} (${primary.currentAge})`
@@ -378,15 +467,45 @@ export default function ScenarioScreen({ people, onEditDetails }) {
       <div className="w-full max-w-3xl mx-auto space-y-4">
 
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-2">
           <span className="text-sm font-medium text-foreground">{headerName}</span>
-          <button
-            onClick={onEditDetails}
-            className="text-sm text-primary underline-offset-4 hover:underline"
-          >
-            [Edit details]
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={onEditDetails}
+              className="text-sm text-primary underline-offset-4 hover:underline"
+            >
+              [Edit details]
+            </button>
+            <button
+              onClick={onEditAccounts}
+              className="text-sm text-primary underline-offset-4 hover:underline"
+            >
+              [Edit accounts]
+            </button>
+            <button
+              onClick={handleSave}
+              className="text-sm text-primary underline-offset-4 hover:underline"
+            >
+              [Save]
+            </button>
+            <button
+              onClick={handleLoadClick}
+              className="text-sm text-primary underline-offset-4 hover:underline"
+            >
+              [Load]
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json"
+              className="hidden"
+              onChange={handleFileChange}
+            />
+          </div>
         </div>
+        {loadError && (
+          <p className="text-xs text-destructive">{loadError}</p>
+        )}
 
         {/* Panel 1 — Your Retirement Goal */}
         <Card className={cn(isLoading && 'opacity-60 pointer-events-none')}>
@@ -495,12 +614,187 @@ export default function ScenarioScreen({ people, onEditDetails }) {
                   {solvencyLabel(survivalAt90)}
                 </p>
               )}
+              {/* Toggle row */}
+              <div className="flex items-center justify-between pt-1">
+                <button
+                  className="text-xs text-primary hover:underline underline-offset-2"
+                  onClick={() => setShowBreakdown(v => !v)}
+                >
+                  {showBreakdown ? '\u25b2 Hide detailed breakdown' : '\u25bc Show detailed breakdown'}
+                </button>
+                <button
+                  className="text-xs text-primary hover:underline underline-offset-2"
+                  onClick={() => setShowDebug(v => !v)}
+                >
+                  {showDebug ? '\u25b2 Hide debug table' : 'Show debug table \u25bc'}
+                </button>
+              </div>
             </div>
 
-            {/* Loading / error states */}
-            {isLoading && (
-              <p className="text-xs text-muted-foreground text-center animate-pulse">Calculating…</p>
+            {/* Breakdown section */}
+            {showBreakdown && lastResult && (
+              <div className="border-t pt-4 space-y-6">
+
+                {/* Section 1: Survival by age bar chart */}
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                    How likely is your money to last?
+                  </p>
+                  <div className="flex gap-2 h-16 items-end">
+                    {survivalDisplayRows.map(row => {
+                      const barHeightPx = Math.max(Math.round(row.probabilitySolvent * 48), 2)
+                      return (
+                        <div key={row.age} className="flex-1 flex flex-col items-center gap-1">
+                          <span className="text-[10px] leading-none text-muted-foreground">
+                            {Math.round(row.probabilitySolvent * 100)}%
+                          </span>
+                          <div
+                            className="w-full rounded-t-sm bg-primary"
+                            style={{ height: `${barHeightPx}px` }}
+                          />
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div className="flex gap-2">
+                    {survivalDisplayRows.map(row => (
+                      <div key={row.age} className="flex-1 text-center text-[10px] text-muted-foreground">
+                        {row.age}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Section 2: Percentile range at retirement */}
+                {snap && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      What you might have when you retire
+                    </p>
+                    <p className="text-xs text-muted-foreground">in today&apos;s money</p>
+                    <div className="relative h-2 bg-muted rounded-full">
+                      <div
+                        className="absolute h-full bg-primary/40 rounded-full"
+                        style={{
+                          left: snapTrackPct(snap.p25),
+                          width: `${snapRange > 0 ? ((snap.p75 - snap.p25) / snapRange * 100).toFixed(1) : 0}%`,
+                        }}
+                      />
+                      <div
+                        className="absolute w-0.5 h-full bg-primary"
+                        style={{ left: snapTrackPct(snap.p50) }}
+                      />
+                    </div>
+                    <div className="relative h-10">
+                      {[
+                        { val: snap.p10, label: 'p10' },
+                        { val: snap.p25, label: 'p25' },
+                        { val: snap.p50, label: 'p50' },
+                        { val: snap.p75, label: 'p75' },
+                        { val: snap.p90, label: 'p90' },
+                      ].map(({ val, label }) => (
+                        <div
+                          key={label}
+                          className="absolute text-center"
+                          style={{ left: snapTrackPct(val), transform: 'translateX(-50%)' }}
+                        >
+                          <p className="text-[10px] font-medium whitespace-nowrap">{fmtSnapK(val)}</p>
+                          <p className="text-[10px] text-muted-foreground">{label}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Section 3: State pension */}
+                {lastResult.statePensions?.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      State pension
+                    </p>
+                    {lastResult.statePensions.map(sp => (
+                      <p key={sp.name} className="text-sm">
+                        <span className="font-medium">{sp.name}</span>{' '}
+                        <span className="text-muted-foreground">
+                          {formatCurrency(sp.annualAmount / 12)}/mo (£{sp.annualAmount.toLocaleString()}/yr) from age {sp.fromAge}
+                        </span>
+                      </p>
+                    ))}
+                  </div>
+                )}
+
+              </div>
             )}
+
+            {/* Debug section */}
+            {showDebug && lastResult && debugRefPerson && (
+              <div className="border-t pt-4 space-y-3">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  Debug — POST /simulate response
+                </p>
+                <p className="text-xs text-muted-foreground font-mono">
+                  numSimulations: {lastResult.numSimulations} &middot;{' '}
+                  probabilityOfRuin: {lastResult.probabilityOfRuin} &middot;{' '}
+                  householdRetirementAge: {lastResult.householdRetirementAge} ({lastResult.householdRetirementName}) &middot;{' '}
+                  effectiveRate: {lastResult.withdrawalRate}
+                </p>
+                <div className="overflow-auto max-h-64 rounded border text-xs font-mono">
+                  <table className="w-full border-collapse min-w-max">
+                    <thead className="sticky top-0 bg-background border-b">
+                      <tr className="text-left text-muted-foreground">
+                        <th className="px-2 py-1 font-medium">Year</th>
+                        {people.map(p => (
+                          <th key={p.name} className="px-2 py-1 font-medium">{p.name}</th>
+                        ))}
+                        <th className="px-2 py-1 font-medium">Phase</th>
+                        {peopleWithSP.map(p => (
+                          <th key={p.name} className="px-2 py-1 font-medium">{p.name} SP</th>
+                        ))}
+                        <th className="px-2 py-1 font-medium">p10 (real)</th>
+                        <th className="px-2 py-1 font-medium">p50 (real)</th>
+                        <th className="px-2 py-1 font-medium">p90 (real)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lastResult.portfolioPercentiles.byAge.map(entry => {
+                        const isRetire = entry.age === lastResult.householdRetirementAge + 1
+                        const phase = entry.age <= lastResult.householdRetirementAge ? 'A' : 'D'
+                        const calYear = currentYear + (entry.age - debugRefPerson.currentAge)
+                        return (
+                          <tr
+                            key={entry.age}
+                            className={cn('border-b last:border-0', isRetire && 'bg-primary/5 font-semibold')}
+                          >
+                            <td className="px-2 py-0.5">{calYear}</td>
+                            {people.map(p => (
+                              <td key={p.name} className="px-2 py-0.5">
+                                {p.currentAge + (entry.age - debugRefPerson.currentAge)}
+                              </td>
+                            ))}
+                            <td className="px-2 py-0.5">{phase}{isRetire ? ' \u2190' : ''}</td>
+                            {peopleWithSP.map(p => {
+                              const personAge = p.currentAge + (entry.age - debugRefPerson.currentAge)
+                              return (
+                                <td key={p.name} className="px-2 py-0.5">
+                                  {personAge >= p.statePension.fromAge
+                                    ? `\u00a3${p.statePension.annualAmount.toLocaleString()}/yr`
+                                    : '\u2014'}
+                                </td>
+                              )
+                            })}
+                            <td className="px-2 py-0.5">£{entry.real[9].toLocaleString()}</td>
+                            <td className="px-2 py-0.5">£{entry.real[49].toLocaleString()}</td>
+                            <td className="px-2 py-0.5">£{entry.real[89].toLocaleString()}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Error state */}
             {error && (
               <p className="text-xs text-destructive text-center">{error}</p>
             )}
@@ -542,7 +836,7 @@ export default function ScenarioScreen({ people, onEditDetails }) {
             <CardContent>
               <div className="flex gap-3">
                 {panel3Cards.map((card, i) => (
-                  <ScenarioCard key={i} card={card} people={people} />
+                  <ScenarioCard key={i} card={card} people={people} onClick={() => handleCardClick(card)} />
                 ))}
               </div>
             </CardContent>

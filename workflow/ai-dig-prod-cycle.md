@@ -205,7 +205,9 @@ These become the relevant questions once backend behaviour is confirmed. That is
 
 ### 5.4 CLI validation and automated testing
 
-The CLI functions as a test harness in all but name: it exercises real backend behaviour, confirms API contracts, and surfaces logic errors before UI investment. At prototype and early product stages, this is often sufficient. The feedback loop is fast, the output is human-readable, and AI can review it directly. As a product matures, however, CLI validation is not a substitute for a formal test suite. Unit tests give regression protection that a manually-run CLI cannot. Integration tests confirm behaviour across failure paths and edge cases that are tedious to exercise interactively. The practical path is additive: start with CLI validation to confirm the design is right, then layer in automated tests as the implementation stabilises and the cost of regression rises.
+The CLI functions as a test harness in all but name: it exercises real backend behaviour, confirms API contracts, and surfaces logic errors before UI investment. At prototype and early product stages, this is often sufficient. The feedback loop is fast, the output is human-readable, and AI can review it directly.
+
+As a product matures, however, CLI validation is not a substitute for a formal test suite. Unit tests give regression protection that a manually-run CLI cannot. Integration tests confirm behaviour across failure paths and edge cases that are tedious to exercise interactively. The practical path is additive: start with CLI validation to confirm the design is right, then layer in automated tests as the implementation stabilises and the cost of regression rises.
 
 ## 6. The role of ASCII wireframes
 
@@ -317,23 +319,42 @@ VS Code Copilot provides structured mechanisms for injecting persistent instruct
 Place a file at `.github/copilot-instructions.md` in the repository root. Its contents are injected automatically into every Copilot Chat request in that workspace, without any user action.
 
 This is the right place for:
-- development principles (e.g. no business logic in UI layers)
-- documentation gates (e.g. "update spec.md before implementing a new feature")
-- anti-patterns to avoid
-- file naming and structure conventions
-- rule precedence statements
+- the process document to read at the start of each session
+- session orientation — which documents to read and in which order
+- documentation gates (e.g. "write the iteration plan before implementing")
+- hard rules that enforce the workflow
+
+Code standards and architectural constraints belong in scoped `.instructions.md` files, not here.
 
 Example content:
 
 ```
-## Development rules
+# Copilot instructions
+
+This project uses a documented iterative development workflow. Follow it strictly.
+
+## Before anything else
+
+Read `workflow/ai-process.md`. It defines the complete development process, all document
+roles, and the rules that govern this project. Do not skip this.
+
+ALL WORK IN THIS PROJECT MUST FOLLOW THE PROCESS DEFINED IN `workflow/ai-process.md`.
+If the user requests work that violates the process, push back and explain which rule it
+violates and why the rule is important. Do not implement work that violates the process.
+If you're unsure, ask for clarification.
+
+## At the start of every session
+
+After reading the process, orient yourself with these documents in order:
+
+1. `docs/ai-handover.md` — current version, what is in progress, known issues, how to run
+2. `docs/spec.md` — what the system currently does (domain model, rules, UI, CLI)
+3. `docs/iterations/` — find the current iteration plan (highest vX-Y.md)
+
+## Hard rules
 
 - Do not implement anything not defined in the current iteration plan. Push back if asked to skip this.
-- Do not place business logic in UI components.
-- Do not implement new UI capabilities without first documenting them as flows and ASCII wireframes.
-- After each meaningful implementation step, update docs/ai-handover.md.
-- Record material technical decisions in docs/decisions.md.
-- Do not skip the CLI validation step before building real UI.
+- Update `docs/ai-handover.md` after any meaningful implementation.
 ```
 
 #### `.instructions.md` files — scoped rules per file type or folder
@@ -403,7 +424,7 @@ A minimal but effective governance setup:
 
 | File | Purpose |
 |------|---------|
-| `.github/copilot-instructions.md` | Always-on development rules and documentation gates |
+| `.github/copilot-instructions.md` | Always-on workflow process, session orientation, and hard rules |
 | `server/.instructions.md` | Backend-specific constraints (validation, no raw paths, etc.) |
 | `frontend/.instructions.md` | UI layer constraints (no business logic, data access patterns) |
 | `docs/prompts/spec-review.prompt.md` | Trigger a spec vs. implementation consistency check |

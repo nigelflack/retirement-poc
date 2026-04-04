@@ -5,8 +5,35 @@ const { interpolateSolventAt } = require('../simulation/math');
 const config = require('../../config/simulation.json');
 
 // Use a reduced simulation count for search iterations — SE ≈ 0.8% at p=0.85,
-// well within the 2% default tolerance. POST /run still uses the full config.
+// well within the 2% default tolerance. POST /simulate still uses the full config.
 const SOLVE_SEARCH_CONFIG = { ...config, numSimulations: 2000 };
+
+/**
+ * Build the flat dense arrays required by runFull for a simple flat-schedule run.
+ * Solve endpoints do not support contribution/income schedules or capital events.
+ */
+function buildFlatInput(people, annualIncomeTarget, toAge) {
+  const earliest = people.reduce((best, p) =>
+    (p.retirementAge - p.currentAge) < (best.retirementAge - best.currentAge) ? p : best
+  );
+  const householdRetirementYear = earliest.retirementAge - earliest.currentAge;
+  const drawdownYears = toAge - earliest.retirementAge;
+  const totalYears = householdRetirementYear + drawdownYears;
+
+  const contributionByYear = people.map(p => {
+    const flat = p.accounts.reduce((s, a) => s + (a.monthlyContribution || 0), 0) * 12;
+    const personRetirementYear = p.retirementAge - p.currentAge;
+    return Array.from({ length: totalYears }, (_, y) => (y < personRetirementYear ? flat : 0));
+  });
+
+  const incomeTargetByYear = Array.from({ length: totalYears }, (_, y) =>
+    y >= householdRetirementYear ? annualIncomeTarget : 0
+  );
+
+  const capitalEventsByYear = new Array(totalYears).fill(0);
+
+  return { people, contributionByYear, incomeTargetByYear, capitalEventsByYear, toAge };
+}
 
 function validatePeople(people) {
   if (!Array.isArray(people) || people.length === 0) {
@@ -50,26 +77,25 @@ router.post('/income', (req, res) => {
     return res.status(400).json({ error: 'tolerance must be between 0 and 1 exclusive' });
   }
 
-  // Seed run to get p50 of real accumulation — this is independent of withdrawalRate.
-  const seed = runFull({ people, withdrawalRate: 0.04, toAge }, SOLVE_SEARCH_CONFIG);
+  // Seed run to get p50 of real accumulation — needed to bound the income search.
+  const seedInput = buildFlatInput(people, 1, toAge); // income=1 just to get accumulation snapshot
+  const seed = runFull(seedInput, SOLVE_SEARCH_CONFIG);
   const p50 = seed.accumulationSnapshot.real.p50;
 
   let lo = 0;
   let hi = p50 / 12; // ceiling: 100% annual withdrawal expressed as monthly
   let bestIncome = 0;
-  let bestRate = 0;
   let bestSolvency = 0;
 
   for (let iter = 0; iter < 50; iter++) {
     const mid = (lo + hi) / 2;
-    const rate = (mid * 12) / p50;
-    const result = runFull({ people, withdrawalRate: rate, toAge }, SOLVE_SEARCH_CONFIG);
+    const annualIncomeTarget = mid * 12;
+    const result = runFull(buildFlatInput(people, annualIncomeTarget, toAge), SOLVE_SEARCH_CONFIG);
     const solvency = interpolateSolventAt(result.survivalTable, referenceAge);
 
     if (solvency >= targetSolvencyPct) {
       lo = mid;
       bestIncome = mid;
-      bestRate = rate;
       bestSolvency = solvency;
       if (Math.abs(solvency - targetSolvencyPct) <= tolerance) break;
     } else {
@@ -83,7 +109,6 @@ router.post('/income', (req, res) => {
 
   res.json({
     monthlyIncome: Math.round(bestIncome),
-    withdrawalRate: parseFloat(bestRate.toFixed(4)),
     survivalAtReferenceAge: parseFloat(bestSolvency.toFixed(4)),
   });
 });
@@ -118,11 +143,8 @@ router.post('/ages', (req, res) => {
       continue;
     }
 
-    const { accumulationSnapshot: { real: { p50 } } } = runFull(
-      { people: currentPeople, withdrawalRate: 0.04, toAge }, SOLVE_SEARCH_CONFIG
-    );
-    const withdrawalRate = (monthlyIncome * 12) / p50;
-    const result = runFull({ people: currentPeople, withdrawalRate, toAge }, SOLVE_SEARCH_CONFIG);
+    const annualIncomeTarget = monthlyIncome * 12;
+    const result = runFull(buildFlatInput(currentPeople, annualIncomeTarget, toAge), SOLVE_SEARCH_CONFIG);
     const solvency = interpolateSolventAt(result.survivalTable, referenceAge);
 
     if (solvency >= targetSolvencyPct) {

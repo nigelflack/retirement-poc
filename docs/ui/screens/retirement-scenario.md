@@ -36,7 +36,7 @@ The screen has two modes that feel like one: adjusting the controls reruns the s
 ## Base Wireframe
 
 ```
-Bob (50) and Alice (45)                              [Edit details]
+Bob (50) and Alice (45)          [Edit details]  [Edit accounts]  [Save]  [Load]
 
 ┌─────────────────────────────────────────────────────────────────────┐
 │                        Your Retirement Goal                         │
@@ -61,6 +61,97 @@ Bob (50) and Alice (45)                              [Edit details]
 │  ├────────────────────────────────────■──────────────────────────┤  │
 │                                                                     │
 │      At these settings, money is likely to last into your 90s.      │
+│                                                                     │
+│  ▼ Show detailed breakdown          Show debug table ▼             │
+└─────────────────────────────────────────────────────────────────────┘
+
+<!-- Expanded state — shown when "Show detailed breakdown" is clicked -->
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                        Your Retirement Goal                         │
+│                                                                     │
+│  [... controls unchanged ...]                                       │
+│                                                                     │
+│  Will your money last?                                              │
+│                                                                     │
+│  Unlikely                                              Very likely  │
+│  ├────────────────────────────────────■──────────────────────────┤  │
+│                                                                     │
+│      At these settings, money is likely to last into your 90s.      │
+│                                                                     │
+│  ▲ Hide detailed breakdown                                          │
+│  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
+│                                                                     │
+│  How likely is your money to last?                                  │
+│                                                                     │
+│   100% ┤                                                            │
+│        │  ██   ██   ██   ██   ██                                    │
+│    80% ┤  ██   ██   ██   ██   ██   ██                               │
+│        │  ██   ██   ██   ██   ██   ██   ██                          │
+│    60% ┤  ██   ██   ██   ██   ██   ██   ██                          │
+│        │  ██   ██   ██   ██   ██   ██   ██                          │
+│    40% ┤  ██   ██   ██   ██   ██   ██   ██                          │
+│        └──────────────────────────────────────                      │
+│           70   75   80   85   90   95  100                          │
+│           98%  96%  91%  86%  81%  73%  64%                         │
+│                                                                     │
+│  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
+│                                                                     │
+│  What you might have when you retire  (in today's money)            │
+│                                                                     │
+│   Pessimistic ──────────────────────────────────── Optimistic       │
+│               |────[──────────│──────────]────|                     │
+│              £540k  £690k   £810k  £940k   £1.1m                    │
+│                p10   p25     p50    p75     p90                     │
+│                               ↑ median                              │
+│                                                                     │
+│  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
+│                                                                     │
+│  State pension                                                      │
+│                                                                     │
+│  Bob      £9,600 / yr  from age 67                                  │
+│  Alice    £11,500 / yr  from age 67                                 │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+
+<!-- Debug-table expanded state — independent of breakdown toggle -->
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                        Your Retirement Goal                         │
+│                                                                     │
+│  [... controls unchanged ...]                                       │
+│                                                                     │
+│  Will your money last?                                              │
+│                                                                     │
+│  Unlikely                                              Very likely  │
+│  ├────────────────────────────────────■──────────────────────────┤  │
+│                                                                     │
+│      At these settings, money is likely to last into your 90s.      │
+│                                                                     │
+│  ▼ Show detailed breakdown                      ▲ Hide debug table  │
+│  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  │
+│                                                                     │
+│  Debug — POST /run response                                         │
+│                                                                     │
+│  numSimulations: 10000   probabilityOfRuin: 0.19                    │
+│  householdRetirementAge: 60 (Bob)   withdrawalRate: 0.04            │
+│                                                                     │
+│  Year  Bob  Alice  Phase  Bob SP     Alice SP   p10       p50       p90      │
+│  ────  ───  ─────  ─────  ─────────  ─────────  ────────  ────────  ──────── │
+│  2026   50    45     A      —          —        £280,000  £450,000  £630,000 │
+│  2027   51    46     A      —          —        £295,000  £475,000  £665,000 │
+│  2028   52    47     A      —          —        £311,000  £501,000  £701,000 │
+│  ...                                                                         │
+│  2036   60    55     D      —          —        £540,000  £810,000  £1,100,000 ← retire │
+│  2037   61    56     D      —          —        £520,000  £785,000  £1,068,000 │
+│  ...                                                                         │
+│  2043   67    62     D    £9,600/yr    —        £460,000  £710,000  £980,000 │
+│  2048   72    67     D    £9,600/yr  £11,500/yr £400,000  £635,000  £890,000 │
+│  ...                                                                         │
+│  2076  100    95     D    £9,600/yr  £11,500/yr       £0        £0        £0 │
+│                                                                     │
+│  (scrollable — all years from current age to toAge)                 │
+│                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -87,8 +178,12 @@ Bob (50) and Alice (45)                              [Edit details]
 │  │                  │  │                   │  │                  │  │
 │  │  to age 90+      │  │  to age 90+       │  │  to age 90+      │  │
 │  └──────────────────┘  └───────────────────┘  └──────────────────┘  │
-│                          ↑ your current plan                        │
+│       (hover: ──────)        ↑ your current plan   (hover: ──────)  │
 └─────────────────────────────────────────────────────────────────────┘
+
+<!-- Panel 3 card click: loads that card's retirement ages and monthly
+     income into Panel 1 controls and triggers a new POST /run.
+     The card for the current plan is highlighted (existing behaviour). -->
 
 ┌─────────────────────────────────────────────────────────────────────┐
 │  Or, adjust your plan to improve your projection                    │
@@ -113,6 +208,17 @@ Bob (50) and Alice (45)                              [Edit details]
 - `[Edit details]` in the header returns to Step 1 and clears wizard state.
 - While a simulation request is in flight, the panels show a loading state (content dims, controls disabled). The spinner and income field revert to their previous values if the request fails.
 - When there is only one person, the header shows their name and age only, "Retire together" is hidden, and there is a single retirement age spinner.
+- The "Show detailed breakdown" toggle is collapsed by default. Clicking it expands the breakdown inline within Panel 1 and changes the label to "Hide detailed breakdown". The expanded state persists across re-runs (if open, it stays open when the simulation updates).
+- All values in the breakdown are in today's money (real terms), consistent with Panel 1.
+- The survival-by-age bars are vertical columns, one per 5-year interval, with height proportional to the probability value. The y-axis runs from 0–100%. They are display-only (not interactive).
+- The percentile range track shows p10–p90 as the full extent, with p25–p75 as a highlighted inner band and p50 marked with a tick. Values are rounded to the nearest £10,000.
+- The state pension section is omitted if no person has a state pension configured.
+- The "Show debug table" toggle is collapsed by default and independent of the breakdown toggle — both can be open simultaneously. Clicking it expands inline within Panel 1 and changes the label to "Hide debug table".
+- The debug table shows one row per year from current age to `toAge`, with columns: Year, each person's age, Phase (A = Accumulating / D = Drawdown), each person's state pension ("—" before their `fromAge`, annual amount in today's money from `fromAge`), and portfolio p10/p50/p90 from `portfolioPercentiles.byAge`.
+- Phase switches to D in the year the household retirement age is reached; that row is annotated with "← retire".
+- Portfolio values in the debug table are nominal (raw from API), not rounded. State pension amounts are in today's money as entered.
+- The debug table is displayed in a fixed-height scrollable container (approximately 12 rows visible at a time). The header row is sticky.
+- The summary line above the table shows `numSimulations`, `probabilityOfRuin`, `householdRetirementAge` and person name, and `withdrawalRate` directly from the API response.
 
 ---
 
@@ -264,3 +370,24 @@ Wireframe (bucket 3 / 4):
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
+---
+
+## Header controls
+
+| Control | Behaviour |
+|---------|-----------|
+| `[Edit details]` | Navigates to Step 1. Form repopulates from current `people` state. No data is lost. |
+| `[Edit accounts]` | Navigates to Step 2. Form repopulates from current `people` state — account rows and state pension fields pre-filled. No data is lost. |
+| `[Save]` | Downloads `people` state as a JSON file. Filename: `<name1>-<name2>.json` (two people) or `<name1>.json` (one person), lowercased with spaces replaced by hyphens. Format matches `ui/src/scenarios/*.json`. |
+| `[Load]` | Opens a file picker (`<input type="file" accept=".json">`). On success, replaces `people` state and remains on the scenario screen. On failure (invalid JSON or unexpected shape), shows an inline error message beneath the header. |
+
+---
+
+## Panel 3 — card interaction
+
+Each card is clickable (cursor-pointer, hover border highlight). Clicking a card:
+1. Sets Panel 1 retirement ages to the card's retirement ages (per person).
+2. Sets Panel 1 monthly income to the card's monthly income.
+3. Triggers a new `POST /run` immediately (same debounce path as manual spinner changes).
+
+The card matching the current Panel 1 values is highlighted (existing behaviour, unchanged).

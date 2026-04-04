@@ -32,13 +32,21 @@ function allPercentiles(arr) {
  *     using a shared inflation path
  *   - Household retirement triggers when the person with fewest years to retirement
  *     reaches their retirement age; all contributions stop at that point
- *   - Drawdown phase: classic income-target model with state pension offsets (v0.4)
+ *   - Drawdown phase: income-target model with state pension offsets; income target,
+ *     contributions, and capital events are supplied as pre-resolved dense arrays
+ *
+ * @param {object} input
+ * @param {object[]} input.people
+ * @param {number[][]} input.contributionByYear - [personIndex][year], annual amount in today's money
+ * @param {number[]} input.incomeTargetByYear   - [year], annual household income target in today's money
+ * @param {number[]} input.capitalEventsByYear  - [year], signed net capital event in today's money
+ * @param {number} input.toAge
  *
  * Returns accumulation snapshot, drawdown stats, survival table, and p1–p99 fan chart
  * for every year from today to toAge. No raw paths are returned.
  */
 function runFull(input, config) {
-  const { people, withdrawalRate, toAge } = input;
+  const { people, contributionByYear, incomeTargetByYear, capitalEventsByYear, toAge } = input;
   const {
     numSimulations,
     annualReturnMean, annualReturnStdDev,
@@ -69,14 +77,14 @@ function runFull(input, config) {
       activationYear: p.statePension.fromAge - p.currentAge,
     }));
 
-  // Per-person accumulation setup.
+  // Per-person accumulation setup — initial value only; contributions come from pre-resolved arrays.
   const personSetups = people.map(p => ({
     initialValue: p.accounts.reduce((s, a) => s + (a.currentValue || 0), 0),
-    annualContribution: p.accounts.reduce((s, a) => s + (a.monthlyContribution || 0), 0) * 12,
   }));
 
   // Accumulate portfolio values at every year for fan chart (p1–p99).
   const valuesByYear = Array.from({ length: totalYears }, () => []);
+  const realValuesByYear = Array.from({ length: totalYears }, () => []);
 
   // Retirement pot per simulation (for accumulation snapshot).
   const retirementPots = new Array(numSimulations);
@@ -96,11 +104,20 @@ function runFull(input, config) {
       cumInflation *= inflFactor;
 
       for (let pi = 0; pi < personSetups.length; pi++) {
-        pots[pi] += personSetups[pi].annualContribution;
+        pots[pi] += contributionByYear[pi][y] * cumInflation;
         pots[pi] *= Math.exp(retParams.muLn + retParams.sigmaLn * sampleNormal());
       }
 
+      // Apply household capital event (after contributions, before snapshot)
+      const capEvent = capitalEventsByYear[y] || 0;
+      if (capEvent !== 0) {
+        // Distribute proportionally across pots; simplest: add to first person's pot
+        pots[0] += capEvent;
+        if (pots[0] < 0) pots[0] = 0; // floor at zero
+      }
+
       valuesByYear[y].push(pots.reduce((s, v) => s + v, 0));
+      realValuesByYear[y].push(pots.reduce((s, v) => s + v, 0) / cumInflation);
     }
 
     // Combined household pot at retirement.
@@ -108,17 +125,17 @@ function runFull(input, config) {
     retirementPots[i] = pot;
     retirementRealPots[i] = pot / cumInflation;
 
-    // Income in today's money = real pot × rate.
-    annualIncomes[i] = (pot / cumInflation) * withdrawalRate;
-
-    let inflatedTarget = pot * withdrawalRate;
+    // Income in today's money: incomeTargetByYear at retirement year, in today's money.
+    annualIncomes[i] = incomeTargetByYear[householdRetirementYear];
 
     // --- Drawdown phase ---
     let ruined = false;
     for (let y = householdRetirementYear; y < totalYears; y++) {
       const inflFactor = Math.exp(infParams.muLn + infParams.sigmaLn * sampleNormal());
       cumInflation *= inflFactor;
-      inflatedTarget *= inflFactor;
+
+      // Income target for this year, inflated from today's money.
+      const inflatedTarget = incomeTargetByYear[y] * cumInflation;
 
       // Sum all active state pensions, inflated from today's money.
       let totalSP = 0;
@@ -137,11 +154,20 @@ function runFull(input, config) {
       }
 
       pot -= draw;
+
+      // Apply capital event (net signed) before return factor
+      const capEvent = capitalEventsByYear[y] || 0;
+      if (capEvent !== 0) {
+        pot += capEvent;
+        if (pot < 0) pot = 0;
+      }
+
       pot *= Math.exp(retParams.muLn + retParams.sigmaLn * sampleNormal());
 
       const ddY = y - householdRetirementYear;
       solventAtYear[ddY]++;
       valuesByYear[y].push(pot);
+      realValuesByYear[y].push(pot / cumInflation);
     }
   }
 
@@ -152,40 +178,40 @@ function runFull(input, config) {
     real: percentilesOf5(retirementRealPots),
   };
 
-  // Fan chart: p1–p99 for every year.
+  // Fan chart: p1–p99 for every year (nominal and real).
   const byAge = [];
   for (let y = 0; y < totalYears; y++) {
     if (valuesByYear[y].length > 0) {
       byAge.push({
         age: refCurrentAge + y + 1,
         nominal: allPercentiles(valuesByYear[y]),
+        real: allPercentiles(realValuesByYear[y]),
       });
     }
   }
 
-  // Survival table at 5-year intervals through drawdown.
+  // Survival table — one entry per drawdown year (annual).
   const survivalTable = [];
-  for (let y = 4; y < drawdownYears; y += 5) {
+  for (let y = 0; y < drawdownYears; y++) {
     survivalTable.push({
       age: householdRetirementAge + y + 1,
       probabilitySolvent: parseFloat((solventAtYear[y] / numSimulations).toFixed(4)),
     });
   }
-  if ((drawdownYears - 1) % 5 !== 4) {
-    survivalTable.push({
-      age: toAge,
-      probabilitySolvent: parseFloat((solventAtYear[drawdownYears - 1] / numSimulations).toFixed(4)),
-    });
-  }
 
   const sortedIncomes = annualIncomes.slice().sort((a, b) => a - b);
+  const annualIncomeTargetAtRetirement = incomeTargetByYear[householdRetirementYear];
+  const realP50AtRetirement = percentilesOf5(retirementRealPots).p50;
 
   return {
     numSimulations,
     householdRetirementAge,
     householdRetirementName: earliest.name,
     accumulationSnapshot,
-    withdrawalRate,
+    annualIncomeTarget: annualIncomeTargetAtRetirement,
+    withdrawalRate: realP50AtRetirement > 0
+      ? parseFloat((annualIncomeTargetAtRetirement / realP50AtRetirement).toFixed(4))
+      : 0,
     annualIncomeMedian: Math.round(sortedIncomes[Math.floor(numSimulations / 2)]),
     annualIncomeP10: Math.round(sortedIncomes[Math.floor(numSimulations * 0.1)]),
     annualIncomeP90: Math.round(sortedIncomes[Math.floor(numSimulations * 0.9)]),

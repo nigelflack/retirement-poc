@@ -46,7 +46,21 @@ Solve endpoints run 2,000 paths per search iteration for speed.
 
 ## Web UI
 
-Three-step wizard: **person details → accounts → scenario screen**.
+Three-step wizard: **person details → accounts → scenario screen**. All wizard navigation is non-destructive — `people` state is never cleared when navigating back or editing. Forms repopulate from existing state on re-entry.
+
+### Wizard — Step 1: Person details
+
+Collects name and age for one or two people. Pre-populates from existing state when navigating back. Includes:
+- "Load from file" button — opens a file picker; valid scenario JSON jumps to the scenario screen
+- "View example scenarios →" link to `/scenarios`
+
+### Wizard — Step 2: Your assets
+
+Collects accounts and state pension per person. Pre-populates from existing state when navigating back ("Edit accounts") from the scenario screen.
+
+### Scenario screen header
+
+`[Edit details]` — returns to step 1 (data preserved). `[Edit accounts]` — returns to step 2 (data preserved). `[Save]` — downloads `people` as a JSON file. `[Load]` — opens a file picker; valid JSON replaces people state and stays on the scenario screen.
 
 ### Panel 1 — Your retirement goal
 
@@ -61,6 +75,14 @@ Solvency label thresholds (probability solvent at age 90):
 | 85–95% | Money is likely to last into your 90s |
 | > 95% | Money is very likely to last well into your 90s |
 
+**Show detailed breakdown** — a collapsible toggle below the solvency bar. Collapsed by default; state persists across re-runs. Expands to three sections:
+
+1. **How likely is your money to last?** — vertical bar chart at 5-year intervals (subset of `survivalTable`), y-axis 0–100%, percentage below each bar.
+2. **What you might have when you retire (in today's money)** — horizontal percentile range track (p10–p90 extent, p25–p75 highlighted band, p50 tick) from `accumulationSnapshot.real`.
+3. **State pension** — per-person name, annual amount, and from-age. Omitted if no person has a state pension.
+
+**Show debug table** — a second collapsible toggle on the same row, right-aligned. Independent of the breakdown toggle. Expands to a scrollable year-by-year table (sticky header, ~12 rows visible) with columns: Year, per-person age, Phase (A/D, retirement year annotated `← retire`), per-person state pension (from `fromAge` onward; `—` before), and real p10/p50/p90 portfolio values from `portfolioPercentiles.byAge[n].real`.
+
 ### Panel 2 — Other options you could consider
 
 Two computed alternatives derived from parallel solve calls, updated after every Panel 1 result:
@@ -74,7 +96,7 @@ Shows skeleton placeholders while solve calls are in flight. Shows "Not availabl
 
 ### Panel 3 — Some options that might work for you
 
-2–3 scenario cards derived from Panel 2 results. Each card shows retirement ages, monthly income, and "to age 90+" label. The current-plan card is highlighted in buckets 3 & 4.
+2–3 scenario cards derived from Panel 2 results. Each card shows retirement ages, monthly income, and "to age 90+" label. The current-plan card is highlighted in buckets 3 & 4. Cards are clickable — clicking a card loads its retirement ages and monthly income into Panel 1 and triggers a new run.
 
 ### `/scenarios` page
 
@@ -84,7 +106,7 @@ Pre-built scenario files (in `ui/src/scenarios/`) listed as cards. Selecting one
 
 ## CLI
 
-Interactive scenario loop: prompts for retirement ages and withdrawal rate (showing previous values in brackets), runs simulation, prints accumulation snapshot and drawdown table in today's money, asks to re-run.
+Interactive scenario loop: prompts for retirement ages and withdrawal rate (showing previous values in brackets), runs simulation, prints accumulation snapshot and drawdown table in today's money, asks to re-run. `survivalTable` is subsampled to 5-year intervals for display (filters to entries where `(age − householdRetirementAge) % 5 == 0`).
 
 **`--solve income`**: prompts retirement ages, solvency %, and reference age; calls `/solve/income`; re-run loop.
 

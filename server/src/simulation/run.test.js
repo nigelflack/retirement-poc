@@ -17,28 +17,52 @@ const basePerson = {
   accounts: [{ name: 'Pension', type: 'pension', currentValue: 500_000, monthlyContribution: 0 }],
 }
 
+/**
+ * Build flat dense arrays for a single person, single income target — the simple case.
+ */
+function buildFlatInput(people, annualIncomeTarget, toAge) {
+  const earliest = people.reduce((best, p) =>
+    (p.retirementAge - p.currentAge) < (best.retirementAge - best.currentAge) ? p : best
+  )
+  const householdRetirementYear = earliest.retirementAge - earliest.currentAge
+  const totalYears = householdRetirementYear + (toAge - earliest.retirementAge)
+
+  const contributionByYear = people.map(p => {
+    const flat = p.accounts.reduce((s, a) => s + (a.monthlyContribution || 0), 0) * 12
+    const personRetirementYear = p.retirementAge - p.currentAge
+    return Array.from({ length: totalYears }, (_, y) => (y < personRetirementYear ? flat : 0))
+  })
+
+  const incomeTargetByYear = Array.from({ length: totalYears }, (_, y) =>
+    y >= householdRetirementYear ? annualIncomeTarget : 0
+  )
+
+  const capitalEventsByYear = new Array(totalYears).fill(0)
+
+  return { people, contributionByYear, incomeTargetByYear, capitalEventsByYear, toAge }
+}
+
 describe('runFull', () => {
-  it('withdrawalRate 0 → probabilityOfRuin is 0', () => {
-    const result = runFull({ people: [basePerson], withdrawalRate: 0, toAge: 100 }, config)
+  it('annualIncomeTarget 0 → probabilityOfRuin is 0', () => {
+    const result = runFull(buildFlatInput([basePerson], 0, 100), config)
     assert.equal(result.probabilityOfRuin, 0)
   })
 
-  it('withdrawalRate 10 (1000%) → probabilityOfRuin is 1', () => {
-    const result = runFull({ people: [basePerson], withdrawalRate: 10, toAge: 100 }, config)
+  it('annualIncomeTarget very large → probabilityOfRuin is 1', () => {
+    const result = runFull(buildFlatInput([basePerson], 10_000_000, 100), config)
     assert.equal(result.probabilityOfRuin, 1)
   })
 
-  it('annualIncomeMedian is approximately real.p50 × withdrawalRate (within 20%)', () => {
-    const withdrawalRate = 0.04
-    const result = runFull({ people: [basePerson], withdrawalRate, toAge: 100 }, config)
-    const expected = result.accumulationSnapshot.real.p50 * withdrawalRate
-    const ratio = result.annualIncomeMedian / expected
+  it('annualIncomeMedian is approximately annualIncomeTarget (within 20%)', () => {
+    const annualIncomeTarget = 20000
+    const result = runFull(buildFlatInput([basePerson], annualIncomeTarget, 100), config)
+    const ratio = result.annualIncomeMedian / annualIncomeTarget
     assert.ok(ratio > 0.8 && ratio < 1.2,
-      `annualIncomeMedian ${result.annualIncomeMedian} not within 20% of expected ${Math.round(expected)}`)
+      `annualIncomeMedian ${result.annualIncomeMedian} not within 20% of target ${annualIncomeTarget}`)
   })
 
   it('survivalTable is monotonically non-increasing', () => {
-    const result = runFull({ people: [basePerson], withdrawalRate: 0.04, toAge: 100 }, config)
+    const result = runFull(buildFlatInput([basePerson], 20000, 100), config)
     const table = result.survivalTable
     for (let i = 1; i < table.length; i++) {
       assert.ok(
@@ -46,5 +70,70 @@ describe('runFull', () => {
         `survivalTable not monotone at index ${i}: ${table[i - 1].probabilitySolvent} → ${table[i].probabilitySolvent}`,
       )
     }
+  })
+
+  it('survivalTable has one entry per drawdown year', () => {
+    const toAge = 90
+    const result = runFull(buildFlatInput([basePerson], 20000, toAge), config)
+    const expectedEntries = toAge - basePerson.retirementAge
+    assert.equal(result.survivalTable.length, expectedEntries,
+      `expected ${expectedEntries} entries, got ${result.survivalTable.length}`)
+    assert.equal(result.survivalTable[0].age, basePerson.retirementAge + 1)
+    assert.equal(result.survivalTable[expectedEntries - 1].age, toAge)
+  })
+
+  it('portfolioPercentiles.byAge entries have both nominal and real fields', () => {
+    const result = runFull(buildFlatInput([basePerson], 20000, 100), config)
+    const entry = result.portfolioPercentiles.byAge[0]
+    assert.ok(Array.isArray(entry.nominal) && entry.nominal.length === 99, 'nominal should be 99-element array')
+    assert.ok(Array.isArray(entry.real) && entry.real.length === 99, 'real should be 99-element array')
+  })
+
+  it('portfolioPercentiles.byAge real p50 is less than nominal p50 (inflation deflation)', () => {
+    const result = runFull(buildFlatInput([basePerson], 20000, 100), config)
+    const lastEntry = result.portfolioPercentiles.byAge[result.portfolioPercentiles.byAge.length - 1]
+    assert.ok(lastEntry.real[49] < lastEntry.nominal[49],
+      `real p50 ${lastEntry.real[49]} should be less than nominal p50 ${lastEntry.nominal[49]}`)
+  })
+
+  it('contributionSchedule step-up produces higher median pot at retirement', () => {
+    const toAge = 100
+    const earliest = basePerson
+    const householdRetirementYear = earliest.retirementAge - earliest.currentAge
+    const totalYears = householdRetirementYear + (toAge - earliest.retirementAge)
+
+    // Low contribution throughout
+    const lowContrib = Array.from({ length: totalYears }, (_, y) => (y < householdRetirementYear ? 6000 : 0))
+    // Step up halfway through accumulation
+    const halfYear = Math.floor(householdRetirementYear / 2)
+    const highContrib = Array.from({ length: totalYears }, (_, y) =>
+      y < householdRetirementYear ? (y < halfYear ? 6000 : 18000) : 0
+    )
+    const incomeTargetByYear = new Array(totalYears).fill(0)
+    const capitalEventsByYear = new Array(totalYears).fill(0)
+
+    const low = runFull({ people: [basePerson], contributionByYear: [lowContrib], incomeTargetByYear, capitalEventsByYear, toAge }, config)
+    const high = runFull({ people: [basePerson], contributionByYear: [highContrib], incomeTargetByYear, capitalEventsByYear, toAge }, config)
+
+    assert.ok(
+      high.accumulationSnapshot.real.p50 > low.accumulationSnapshot.real.p50,
+      `higher contribution should produce higher p50: ${high.accumulationSnapshot.real.p50} vs ${low.accumulationSnapshot.real.p50}`
+    )
+  })
+
+  it('capital inflow improves solvency vs no event', () => {
+    const toAge = 100
+    const income = 25000
+    const noEvent = buildFlatInput([basePerson], income, toAge)
+    const withInflow = { ...noEvent, capitalEventsByYear: noEvent.capitalEventsByYear.slice() }
+    withInflow.capitalEventsByYear[basePerson.retirementAge - basePerson.currentAge] = 100000
+
+    const without = runFull(noEvent, config)
+    const with_ = runFull(withInflow, config)
+
+    assert.ok(
+      with_.probabilityOfRuin <= without.probabilityOfRuin,
+      `inflow should improve or maintain solvency: ${with_.probabilityOfRuin} vs ${without.probabilityOfRuin}`
+    )
   })
 })

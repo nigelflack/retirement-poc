@@ -8,14 +8,14 @@ import sys
 
 import requests
 
-from client import call_run, call_solve_income, call_solve_ages
-from formatter import format_run, format_solve_income, format_solve_ages
+from client import call_simulate, call_solve_income, call_solve_ages
+from formatter import format_run, format_debug, format_solve_income, format_solve_ages
 
-DEFAULT_WITHDRAWAL_RATE = 4.0
+DEFAULT_MONTHLY_INCOME = 3000.0
 DEFAULT_TO_AGE = 100
 
 
-def prompt_scenario(people: list, prev_retirement_ages: dict, prev_withdrawal_rate: float):
+def prompt_scenario(people: list, prev_retirement_ages: dict, prev_monthly_income: float):
     """Prompt for all scenario parameters. Previous values shown in brackets; enter keeps them."""
     print()
     updated_people = []
@@ -43,26 +43,26 @@ def prompt_scenario(people: list, prev_retirement_ages: dict, prev_withdrawal_ra
             except ValueError:
                 print("  Please enter a whole number.")
 
-    bracket = f" [{prev_withdrawal_rate:.1f}]"
+    bracket = f" [{prev_monthly_income:,.0f}]"
     while True:
         try:
-            raw = input(f"  Withdrawal rate %{bracket}: ").strip()
+            raw = input(f"  Monthly income target (£/mo){bracket}: ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             sys.exit(0)
         if raw == "":
-            rate_pct = prev_withdrawal_rate
+            monthly_income = prev_monthly_income
             break
         try:
-            rate_pct = float(raw)
-            if rate_pct <= 0 or rate_pct >= 100:
-                print("  Please enter a percentage between 0 and 100.")
+            monthly_income = float(raw)
+            if monthly_income <= 0:
+                print("  Please enter a positive number.")
                 continue
             break
         except ValueError:
             print("  Please enter a number.")
 
-    return updated_people, rate_pct
+    return updated_people, monthly_income
 
 
 def prompt_solve_income(people: list, prev_retirement_ages: dict, prev_solvency_pct: float, prev_reference_age: int):
@@ -227,6 +227,7 @@ def main():
     )
     parser.add_argument("--json", action="store_true", help="Run once and output raw JSON")
     parser.add_argument("--solve", choices=["income", "ages"], help="Solve mode: income or ages")
+    parser.add_argument("--debug", action="store_true", help="Print year-by-year debug table after results")
     args = parser.parse_args()
 
     if not args.input:
@@ -334,10 +335,19 @@ def main():
                 break
 
     elif args.json:
-        people, rate_pct = prompt_scenario(payload["people"], {}, DEFAULT_WITHDRAWAL_RATE)
-        run_payload = {"people": people, "withdrawalRate": rate_pct / 100, "toAge": DEFAULT_TO_AGE}
+        people, monthly_income = prompt_scenario(payload["people"], {}, payload.get("annualIncomeTarget", DEFAULT_MONTHLY_INCOME * 12) / 12)
+        run_payload = {
+            "people": people,
+            "annualIncomeTarget": monthly_income * 12,
+            "toAge": DEFAULT_TO_AGE,
+            "debug": args.debug,
+        }
+        if "incomeSchedule" in payload:
+            run_payload["incomeSchedule"] = payload["incomeSchedule"]
+        if "capitalEvents" in payload:
+            run_payload["capitalEvents"] = payload["capitalEvents"]
         try:
-            results = call_run(args.server, run_payload)
+            results = call_simulate(args.server, run_payload)
         except Exception as e:
             print(f"Error calling server: {e}", file=sys.stderr)
             sys.exit(1)
@@ -346,7 +356,7 @@ def main():
 
     else:
         prev_retirement_ages = {}
-        prev_withdrawal_rate = DEFAULT_WITHDRAWAL_RATE
+        prev_monthly_income = payload.get("annualIncomeTarget", DEFAULT_MONTHLY_INCOME * 12) / 12
 
         while True:
             print()
@@ -354,25 +364,32 @@ def main():
             print("  Scenario")
             print("─" * 52)
 
-            people, rate_pct = prompt_scenario(
-                payload["people"], prev_retirement_ages, prev_withdrawal_rate
+            people, monthly_income = prompt_scenario(
+                payload["people"], prev_retirement_ages, prev_monthly_income
             )
             prev_retirement_ages = {p["name"]: p["retirementAge"] for p in people}
-            prev_withdrawal_rate = rate_pct
+            prev_monthly_income = monthly_income
 
             run_payload = {
                 "people": people,
-                "withdrawalRate": rate_pct / 100,
+                "annualIncomeTarget": monthly_income * 12,
                 "toAge": DEFAULT_TO_AGE,
+                "debug": args.debug,
             }
+            if "incomeSchedule" in payload:
+                run_payload["incomeSchedule"] = payload["incomeSchedule"]
+            if "capitalEvents" in payload:
+                run_payload["capitalEvents"] = payload["capitalEvents"]
 
             try:
-                results = call_run(args.server, run_payload)
+                results = call_simulate(args.server, run_payload)
             except Exception as e:
                 print(f"  Error calling server: {e}", file=sys.stderr)
                 continue
 
             print(format_run(results))
+            if args.debug and "resolvedSchedules" in results:
+                print(format_debug(results))
 
             print()
             try:

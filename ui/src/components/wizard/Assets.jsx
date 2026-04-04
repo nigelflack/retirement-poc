@@ -17,11 +17,26 @@ function emptyStatePension() {
 export default function Assets({ people, onComplete, onBack }) {
   // accounts[personName] = [{ name, type, currentValue, monthlyContribution }]
   const [accounts, setAccounts] = useState(
-    Object.fromEntries(people.map(p => [p.name, [emptyAccount()]])),
+    Object.fromEntries(people.map(p => [
+      p.name,
+      p.accounts?.length > 0
+        ? p.accounts.map(a => ({
+            name: a.name ?? '',
+            type: a.type === 'pension' ? 'Pension' : 'ISA',
+            currentValue: a.currentValue?.toString() ?? '',
+            monthlyContribution: a.monthlyContribution?.toString() ?? '',
+          }))
+        : [emptyAccount()],
+    ])),
   )
   // statePensions[personName] = { annualAmount, fromAge }
   const [statePensions, setStatePensions] = useState(
-    Object.fromEntries(people.map(p => [p.name, emptyStatePension()])),
+    Object.fromEntries(people.map(p => [
+      p.name,
+      p.statePension
+        ? { annualAmount: p.statePension.annualAmount?.toString() ?? '', fromAge: p.statePension.fromAge?.toString() ?? '' }
+        : emptyStatePension(),
+    ])),
   )
   const [activeTab, setActiveTab] = useState(people[0].name)
   const [errors, setErrors] = useState({})

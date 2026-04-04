@@ -1,6 +1,6 @@
 # AI Handover
 
-_Last updated: 23 March 2026 (v0.8 complete)_
+_Last updated: 4 April 2026 (v0.11 complete)_
 
 Read this at the start of a session to get oriented quickly. For what the system does, see `docs/spec.md`. For the next iteration plan, see `docs/iterations/`. For the backlog, see `docs/backlog.md`.
 
@@ -8,19 +8,19 @@ Read this at the start of a session to get oriented quickly. For what the system
 
 ## Current version
 
-**v0.8** — React Router; `/scenarios` page; Panel 2 live (solve calls, bucket logic, skeletons, 422 handling); Panel 3 live (scenario cards); 15 server unit tests passing.
+**v0.11 (complete)** — Schedule-aware simulation engine + API overhaul. `POST /run` renamed to `POST /simulate`. `withdrawalRate` removed as an input; replaced by `annualIncomeTarget` (today's money). Three optional schedule fields added to `/simulate`: `contributionSchedule` (per person), `incomeSchedule` (household), `capitalEvents` (household). Server-side adapter (`resolveSchedules` in `simulate.js`) resolves sparse schedules to dense per-year arrays before calling `runFull`. Engine (`run.js`) updated to accept and use those arrays. Solve routes updated to remove internal `withdrawalRate` derivation. CLI prompt updated from withdrawal rate % to monthly income; `--debug` flag added for year-by-year table output. `withdrawalRate` remains as a computed output field on `/simulate` response.
 
 ---
 
 ## What is in progress / next
 
-- **v0.9** — not yet planned. See `docs/backlog.md` to choose scope.
+Nothing in progress. See `docs/backlog.md` for candidate next items.
 
 ---
 
 ## Known issues / rough edges
 
-No current known issues. Deferred items are in `docs/backlog.md`.
+- UI does not yet expose `contributionSchedule`, `incomeSchedule`, or `capitalEvents` inputs — these are supported by the API and CLI only.
 
 ---
 
@@ -41,6 +41,9 @@ cd cli && python retirement.py --input inputs/nigel-mimi.json
 # Solve modes
 python retirement.py --input inputs/nigel-mimi.json --solve income
 python retirement.py --input inputs/nigel-mimi.json --solve ages
+
+# Debug table (year-by-year)
+python retirement.py --input inputs/nigel-mimi.json --debug
 
 # Server tests
 cd server && npm test

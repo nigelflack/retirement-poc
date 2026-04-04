@@ -189,3 +189,35 @@ Decisions recorded in version order. Each entry explains what was decided and wh
 ### CLI `--solve income` and `--solve ages` modes added
 **Decided:** A `--solve {income,ages}` argument is added to the CLI. Each mode has its own prompt sequence and re-run loop. The `--input` flag remains required for all modes.
 **Rationale:** The solve endpoints existed since v0.7 but were only accessible via raw HTTP. These modes make them first-class citizens of the CLI workflow alongside normal `POST /run` mode, with the same re-run loop pattern and previous-value retention.
+
+---
+
+## v0.9
+
+### Breaking API change accepted: `survivalTable` now annual, `portfolioPercentiles.byAge` gains `real` field
+**Decided:** `survivalTable` changed from 5-year intervals to one entry per year; each `portfolioPercentiles.byAge` entry gains a `real` array (p1–p99 in today's money); `accumulationSnapshot` gains a `real` sub-object (p10/p25/p50/p75/p90). Breaking changes applied without backward compatibility.
+**Rationale:** The project is pre-production with no live consumers. A clean API is preferable to compatibility shims. Annual `survivalTable` entries give the UI full flexibility to display any interval it chooses. Real percentile values were needed for the breakdown panel and debug table — computing them client-side from nominal values would require the inflation path, which is not in the response.
+
+### CLI subsamples annual `survivalTable` for display
+**Decided:** `formatter.py` filters `survivalTable` to entries where `(age − householdRetirementAge) % 5 == 0` before rendering the bar chart and final ruin probability line.
+**Rationale:** The server now emits one entry per year. The CLI bar chart has always shown 5-year intervals and that granularity is appropriate for a text terminal. Subsampling in the formatter keeps the server canonical and the display readable.
+
+### "Calculating…" label removed from Panel 1
+**Decided:** The `<p>Calculating…</p>` element shown below the solvency bar during a run was removed.
+**Rationale:** Panel opacity and disabled controls already communicate the loading state. The label added no information and caused a visible vertical layout jump each time a run started and completed.
+
+---
+
+## v0.10
+
+### Non-destructive wizard navigation via state merge in App
+**Decided:** `App.jsx` never clears `people` on navigation. `handlePersonDetailsComplete` merges name/age changes back into existing state, preserving `accounts` and `statePension` for any person whose name is unchanged. Only if a person is new do they start with empty accounts.
+**Rationale:** The previous approach (`setPeople([])`) made every back-navigation or "Edit details" click destroy all entered data, forcing the user to re-enter everything. The merge approach is non-destructive and handles the common case (correcting a typo or age) without any account loss.
+
+### File save/load uses Blob download and FileReader; no server involvement
+**Decided:** Save uses `Blob` + `URL.createObjectURL` + a transient `<a download>` element. Load uses a hidden `<input type="file">` + `FileReader.readAsText` + `JSON.parse`. Both are handled entirely in the browser.
+**Rationale:** There is no server-side persistence layer. The scenario JSON format already existed (`ui/src/scenarios/*.json`, `cli/inputs/*.json`) — reusing it for save/load means files can be used in the CLI as well as the UI. No new endpoint needed.
+
+### JSON validation at system boundary only (no schema library)
+**Decided:** A short inline `validatePeopleFile` function checks for `people` array, non-empty entries, `name` string, `currentAge` number, and non-empty `accounts` array. No external schema validation library added.
+**Rationale:** The validation is at the file load boundary only. The checks are simple enough that a dedicated library would add more dependency weight than value. Any file that passes this check will produce a working simulation payload.

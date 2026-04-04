@@ -1,16 +1,28 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 
-export default function PersonDetails({ onComplete }) {
-  const [name, setName] = useState('')
-  const [age, setAge] = useState('')
-  const [includePartner, setIncludePartner] = useState(false)
-  const [partnerName, setPartnerName] = useState('')
-  const [partnerAge, setPartnerAge] = useState('')
+function validatePeopleFile(data) {
+  if (!data || !Array.isArray(data.people) || data.people.length === 0) return false
+  return data.people.every(p =>
+    typeof p.name === 'string' && p.name.trim() &&
+    typeof p.currentAge === 'number' &&
+    Array.isArray(p.accounts) && p.accounts.length > 0,
+  )
+}
+
+export default function PersonDetails({ onComplete, initialPeople = [], onPeopleLoad }) {
+  const [name, setName] = useState(initialPeople[0]?.name ?? '')
+  const [age, setAge] = useState(initialPeople[0]?.currentAge?.toString() ?? '')
+  const [includePartner, setIncludePartner] = useState(initialPeople.length > 1)
+  const [partnerName, setPartnerName] = useState(initialPeople[1]?.name ?? '')
+  const [partnerAge, setPartnerAge] = useState(initialPeople[1]?.currentAge?.toString() ?? '')
   const [errors, setErrors] = useState({})
+  const [loadError, setLoadError] = useState(null)
+  const fileInputRef = useRef(null)
 
   function validate() {
     const e = {}
@@ -42,6 +54,31 @@ export default function PersonDetails({ onComplete }) {
       setPartnerAge('')
       setErrors(e => { const { partnerName: _pn, partnerAge: _pa, ...rest } = e; return rest })
     }
+  }
+
+  function handleLoadClick() {
+    setLoadError(null)
+    fileInputRef.current?.click()
+  }
+
+  function handleFileChange(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result)
+        if (!validatePeopleFile(data)) {
+          setLoadError('Could not load file — invalid format.')
+          return
+        }
+        onPeopleLoad(data.people)
+      } catch {
+        setLoadError('Could not load file — invalid format.')
+      }
+      e.target.value = ''
+    }
+    reader.readAsText(file)
   }
 
   return (
@@ -114,6 +151,26 @@ export default function PersonDetails({ onComplete }) {
         )}
 
         <Button onClick={handleContinue} className="w-full">Continue</Button>
+
+        <div className="space-y-2">
+          <Button variant="outline" onClick={handleLoadClick} className="w-full">
+            Load from file
+          </Button>
+          {loadError && <p className="text-sm text-destructive">{loadError}</p>}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json"
+            className="hidden"
+            onChange={handleFileChange}
+          />
+        </div>
+
+        <p className="text-sm text-center">
+          <Link to="/scenarios" className="text-primary underline-offset-4 hover:underline">
+            View example scenarios →
+          </Link>
+        </p>
       </div>
     </div>
   )

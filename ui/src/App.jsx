@@ -11,7 +11,12 @@ export default function App() {
   const [people, setPeople] = useState(initialPeople ?? [])
 
   function handlePersonDetailsComplete(collectedPeople) {
-    setPeople(collectedPeople)
+    // Preserve accounts/statePension for people whose name is unchanged
+    const merged = collectedPeople.map(newP => {
+      const existing = people.find(p => p.name === newP.name)
+      return existing ? { ...existing, currentAge: newP.currentAge } : newP
+    })
+    setPeople(merged)
     setStep(2)
   }
 
@@ -21,12 +26,26 @@ export default function App() {
   }
 
   function handleEditDetails() {
-    setPeople([])
     setStep(1)
   }
 
+  function handleEditAccounts() {
+    setStep(2)
+  }
+
+  function handlePeopleLoad(loadedPeople) {
+    setPeople(loadedPeople)
+    setStep(3)
+  }
+
   if (step === 1) {
-    return <PersonDetails onComplete={handlePersonDetailsComplete} />
+    return (
+      <PersonDetails
+        initialPeople={people}
+        onComplete={handlePersonDetailsComplete}
+        onPeopleLoad={handlePeopleLoad}
+      />
+    )
   }
 
   if (step === 2) {
@@ -43,6 +62,8 @@ export default function App() {
     <ScenarioScreen
       people={people}
       onEditDetails={handleEditDetails}
+      onEditAccounts={handleEditAccounts}
+      onPeopleLoad={handlePeopleLoad}
     />
   )
 }

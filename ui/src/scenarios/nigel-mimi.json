@@ -9,7 +9,11 @@
         { "name": "Vanguard ISA", "type": "isa", "currentValue": 61000, "monthlyContribution": 1600 },
         { "name": "Car", "type": "isa", "currentValue": 35000, "monthlyContribution": 0 }
       ],
-      "statePension": { "fromAge": 67, "annualAmount": 12000 }
+      "statePension": { "fromAge": 67, "annualAmount": 12000 },
+      "contributionSchedule": [
+        { "fromYear": 0, "annualAmount": 48000 },
+        { "fromYear": 5, "annualAmount": 24000 }
+      ]
     },
     {
       "name": "Mimi",
@@ -19,7 +23,20 @@
         { "name": "ISA", "type": "isa", "currentValue": 20000, "monthlyContribution": 100 },
         { "name": "Shares", "type": "isa", "currentValue": 30000, "monthlyContribution": 0 }
       ],
-      "statePension": { "fromAge": 67, "annualAmount": 10000 }
+      "statePension": { "fromAge": 67, "annualAmount": 10000 },
+      "contributionSchedule": [
+        { "fromYear": 0, "annualAmount": 1200 },
+        { "fromYear": 5, "annualAmount": 600 }
+      ]
     }
+  ],
+  "annualIncomeTarget": 48000,
+  "incomeSchedule": [
+    { "fromYear": 0, "annualAmount": 48000 },
+    { "fromYear": 10, "annualAmount": 36000 }
+  ],
+  "capitalEvents": [
+    { "year": 3, "amount": -100000 },
+    { "year": 15, "amount": 100000 }
   ]
 }

@@ -14,7 +14,7 @@ async function postJson(path, payload) {
 }
 
 export function callRun(payload) {
-  return postJson('/run', payload)
+  return postJson('/simulate', payload)
 }
 
 export function callSolveIncome(payload) {
