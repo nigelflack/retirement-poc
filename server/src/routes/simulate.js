@@ -12,11 +12,11 @@ const simulationConfig = require('../../config/simulation.json');
  * @param {number} totalYears - total simulation years (accumulation + drawdown)
  * @param {number} householdRetirementYear - year index when household retires
  * @param {number[]} retirementYears - per-person retirement year indices (same order as people)
- * @returns {{ contributionByYear: number[][], incomeTargetByYear: number[], capitalEventsByYear: number[] }}
+ * @returns {{ contributionByYear: number[][], spendingTargetByYear: number[], capitalEventsByYear: number[], otherIncomeByYear: number[] }}
  */
 function resolveSchedules(input, totalYears, householdRetirementYear, retirementYears) {
-  const { people, monthlyIncomeTarget, incomeSchedule, capitalEvents } = input;
-  const annualIncomeTarget = monthlyIncomeTarget * 12;
+  const { people, monthlySpendingTarget, spendingSchedule, capitalEvents } = input;
+  const annualSpendingTarget = monthlySpendingTarget * 12;
 
   // --- contributionByYear: one array per person ---
   const contributionByYear = people.map((person, pi) => {
@@ -53,9 +53,9 @@ function resolveSchedules(input, totalYears, householdRetirementYear, retirement
     return yearlyContribution;
   });
 
-  // --- incomeTargetByYear: household level ---
-  const incomeTargetByYear = new Array(totalYears).fill(0);
-  const schedule = incomeSchedule && incomeSchedule.length > 0 ? incomeSchedule : null;
+  // --- spendingTargetByYear: household level ---
+  const spendingTargetByYear = new Array(totalYears).fill(0);
+  const schedule = spendingSchedule && spendingSchedule.length > 0 ? spendingSchedule : null;
 
   for (let y = householdRetirementYear; y < totalYears; y++) {
     if (schedule) {
@@ -68,9 +68,9 @@ function resolveSchedules(input, totalYears, householdRetirementYear, retirement
           break;
         }
       }
-      incomeTargetByYear[y] = amount;
+      spendingTargetByYear[y] = amount;
     } else {
-      incomeTargetByYear[y] = annualIncomeTarget;
+      spendingTargetByYear[y] = annualSpendingTarget;
     }
   }
 
@@ -84,7 +84,21 @@ function resolveSchedules(input, totalYears, householdRetirementYear, retirement
     }
   }
 
-  return { contributionByYear, incomeTargetByYear, capitalEventsByYear };
+  // --- otherIncomeByYear: sum of all per-person income streams ---
+  const otherIncomeByYear = new Array(totalYears).fill(0);
+  for (const person of people) {
+    if (!Array.isArray(person.incomeStreams)) continue;
+    for (const stream of person.incomeStreams) {
+      const from = stream.fromYearsFromToday ?? 0;
+      const to = stream.toYearsFromToday ?? totalYears;
+      const annual = stream.monthlyAmount * 12;
+      for (let y = from; y < Math.min(to, totalYears); y++) {
+        otherIncomeByYear[y] += annual;
+      }
+    }
+  }
+
+  return { contributionByYear, spendingTargetByYear, capitalEventsByYear, otherIncomeByYear };
 }
 
 function validatePeople(people) {
@@ -108,8 +122,8 @@ function validatePeople(people) {
 router.post('/', (req, res) => {
   const {
     people,
-    monthlyIncomeTarget,
-    incomeSchedule,
+    monthlySpendingTarget,
+    spendingSchedule,
     capitalEvents,
     toAge = 100,
     debug = false,
@@ -118,8 +132,8 @@ router.post('/', (req, res) => {
   const peopleErr = validatePeople(people);
   if (peopleErr) return res.status(400).json({ error: peopleErr });
 
-  if (typeof monthlyIncomeTarget !== 'number' || monthlyIncomeTarget <= 0) {
-    return res.status(400).json({ error: 'monthlyIncomeTarget must be a positive number' });
+  if (typeof monthlySpendingTarget !== 'number' || monthlySpendingTarget <= 0) {
+    return res.status(400).json({ error: 'monthlySpendingTarget must be a positive number' });
   }
   if (typeof toAge !== 'number' || toAge <= 0) {
     return res.status(400).json({ error: 'toAge must be a positive number' });
@@ -136,7 +150,7 @@ router.post('/', (req, res) => {
   const retirementYears = people.map(p => p.retirementAge - p.currentAge);
 
   const resolved = resolveSchedules(
-    { people, monthlyIncomeTarget, incomeSchedule, capitalEvents },
+    { people, monthlySpendingTarget, spendingSchedule, capitalEvents },
     totalYears,
     householdRetirementYear,
     retirementYears,
@@ -145,7 +159,12 @@ router.post('/', (req, res) => {
   const results = runFull({ people, toAge, ...resolved }, simulationConfig);
 
   if (debug) {
-    results.resolvedSchedules = resolved;
+    results.resolvedSchedules = {
+      contributionByYear: resolved.contributionByYear,
+      spendingTargetByYear: resolved.spendingTargetByYear,
+      capitalEventsByYear: resolved.capitalEventsByYear,
+      otherIncomeByYear: resolved.otherIncomeByYear,
+    };
   }
 
   res.json(results);

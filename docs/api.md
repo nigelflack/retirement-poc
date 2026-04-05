@@ -28,17 +28,21 @@ Run a full single-pass Monte Carlo simulation (accumulation + drawdown) and retu
       "contributionSchedule": [
         { "fromYearsFromToday": 0, "monthlyAmount": 500 },
         { "fromYearsFromToday": 10, "monthlyAmount": 800 }
+      ],
+      "incomeStreams": [
+        { "label": "BTL rental", "fromYearsFromToday": 0, "toYearsFromToday": 10, "monthlyAmount": 800 }
       ]
     }
   ],
-  "monthlyIncomeTarget": 3333,
-  "incomeSchedule": [
+  "label": "Base case",
+  "monthlySpendingTarget": 3333,
+  "spendingSchedule": [
     { "fromYearsFromRetirement": 0, "monthlyAmount": 3333 },
-    { "fromYearsFromRetirement": 13, "monthlyAmount": 2333 }
+    { "fromYearsFromRetirement": 13, "monthlyAmount": 2333, "label": "Reduced spending" }
   ],
   "capitalEvents": [
-    { "yearsFromToday": 18, "amount": 50000 },
-    { "yearsFromToday": 24, "amount": -10000 }
+    { "yearsFromToday": 18, "amount": 50000, "label": "Inheritance" },
+    { "yearsFromToday": 24, "amount": -10000, "label": "Car purchase" }
   ],
   "toAge": 100,
   "debug": false
@@ -49,10 +53,12 @@ Run a full single-pass Monte Carlo simulation (accumulation + drawdown) and retu
 - `accounts[].currentValue` — current pot value in today's £
 - `accounts[].monthlyContribution` — monthly contribution until retirement (used as the default flat contribution if `contributionSchedule` is absent)
 - `statePension` — optional; amounts in today's money, inflated in simulation
-- `monthlyIncomeTarget` — desired total household monthly income in today's money (£). Required.
-- `contributionSchedule` — optional per-person step schedule. `fromYearsFromToday` is years from today (`targetAge - currentAge`). `monthlyAmount` is monthly £ (adapter multiplies by 12). If absent, flat contribution from `accounts[].monthlyContribution` is used.
-- `incomeSchedule` — optional household step schedule. `fromYearsFromRetirement` is years from household retirement (0 = retirement year). `monthlyAmount` is monthly £ (adapter multiplies by 12). If absent, `monthlyIncomeTarget` is used flat for all drawdown years.
-- `capitalEvents` — optional household lump-sum events. `yearsFromToday` is years from today. `amount` is signed (positive = inflow, negative = outflow). Applied before that year's return factor.
+- `monthlySpendingTarget` — desired total household monthly spending in today's money (£). Required.
+- `contributionSchedule` — optional per-person step schedule. `fromYearsFromToday` is years from today (`targetAge - currentAge`). `monthlyAmount` is monthly £ (adapter multiplies by 12). If absent, flat contribution from `accounts[].monthlyContribution` is used. Optional `label` string is for display only.
+- `incomeStreams` — optional per-person array of other income sources active during drawdown. Each entry: `fromYearsFromToday` (start year, inclusive), `toYearsFromToday` (end year, exclusive; absent = run to end), `monthlyAmount`, optional `label`. Summed across all people and offset against the spending draw each year.
+- `spendingSchedule` — optional household spending step schedule. `fromYearsFromRetirement` is years from household retirement (0 = retirement year). `monthlyAmount` is monthly £ (adapter multiplies by 12). If absent, `monthlySpendingTarget` is used flat for all drawdown years. Optional `label` string is for display only.
+- `capitalEvents` — optional household lump-sum events. `yearsFromToday` is years from today. `amount` is signed (positive = inflow, negative = outflow). Applied before that year's return factor. Optional `label` string is for display only.
+- `label` — optional top-level scenario label string; for display only.
 - `toAge` — simulation horizon (default `100` if omitted)
 - `debug` — if `true`, response includes `resolvedSchedules` (the three pre-resolved dense arrays). Default `false`.
 
@@ -68,7 +74,7 @@ Run a full single-pass Monte Carlo simulation (accumulation + drawdown) and retu
     "nominal": { "p10": ..., "p25": ..., "p50": ..., "p75": ..., "p90": ... },
     "real":    { "p10": ..., "p25": ..., "p50": ..., "p75": ..., "p90": ... }
   },
-  "annualIncomeTarget": 40000,
+  "annualSpendingTarget": 40000,
   "withdrawalRate": 0.038,
   "annualIncomeMedian": 40000,
   "annualIncomeP10": 28000,
@@ -89,8 +95,8 @@ Run a full single-pass Monte Carlo simulation (accumulation + drawdown) and retu
 }
 ```
 
-- `annualIncomeTarget` — echoed from the request (income target at retirement year), in today's money
-- `withdrawalRate` — computed output only: `annualIncomeTarget / accumulationSnapshot.real.p50`. Never an input.
+- `annualSpendingTarget` — echoed from the request (spending target at retirement year), in today's money
+- `withdrawalRate` — computed output only: `annualSpendingTarget / accumulationSnapshot.real.p50`. Never an input.
 - `accumulationSnapshot` — household portfolio at the retirement year (nominal and real percentiles)
 - `annualIncome*` — in today's money (real terms)
 - `survivalTable` — probability of remaining solvent for every year from `householdRetirementAge+1` to `toAge` (annual)
@@ -100,8 +106,9 @@ Run a full single-pass Monte Carlo simulation (accumulation + drawdown) and retu
 
 **Debug-only response fields** (when `debug: true`):
 - `resolvedSchedules.contributionByYear` — 2D array `[personIndex][year]`
-- `resolvedSchedules.incomeTargetByYear` — 1D array `[year]`
+- `resolvedSchedules.spendingTargetByYear` — 1D array `[year]`
 - `resolvedSchedules.capitalEventsByYear` — 1D array `[year]`
+- `resolvedSchedules.otherIncomeByYear` — 1D array `[year]`; sum of all `incomeStreams` across all people
 
 ---
 
@@ -124,7 +131,7 @@ Binary-search for the maximum sustainable monthly income at fixed retirement age
 - `targetSolvencyPct` — desired probability of solvency at `referenceAge`, as a decimal (e.g. `0.85`)
 - `referenceAge` — age at which solvency is measured
 - `tolerance` — convergence band around `targetSolvencyPct`; default `0.02` (2 pp)
-- Schedule fields (`contributionSchedule`, `incomeSchedule`, `capitalEvents`) are not supported on solve endpoints.
+- Schedule fields (`contributionSchedule`, `spendingSchedule`, `capitalEvents`, `incomeStreams`) are not supported on solve endpoints.
 
 ### Response
 
@@ -137,7 +144,7 @@ Binary-search for the maximum sustainable monthly income at fixed retirement age
 
 ### Algorithm
 
-Binary search over `monthlyIncome` from £0 to a ceiling of `accumulationSnapshot.real.p50 / 12`. Each iteration runs the simulation with a flat `annualIncomeTarget = mid × 12` and checks whether `interpolateSolventAt(survivalTable, referenceAge)` is within `tolerance` of `targetSolvencyPct`. Capped at 50 iterations. Each search iteration uses 2,000 simulations (vs 10,000 for `/simulate`).
+Binary search over `monthlyIncome` from £0 to a ceiling of `accumulationSnapshot.real.p50 / 12`. Each iteration runs the simulation with a flat `annualSpendingTarget = mid × 12` and checks whether `interpolateSolventAt(survivalTable, referenceAge)` is within `tolerance` of `targetSolvencyPct`. Capped at 50 iterations. Each search iteration uses 2,000 simulations (vs 10,000 for `/simulate`).
 
 ### Error responses
 
@@ -192,7 +199,7 @@ Binary-search for the earliest retirement ages at which a household can sustain 
 
 ### Algorithm
 
-Binary search over an age offset `[0, 20]` years added uniformly to all persons' floor `retirementAge`. The simulation is run at each candidate ages with `annualIncomeTarget = monthlyIncome × 12` (flat). Returns the lowest offset where solvency ≥ target. Each search iteration uses 2,000 simulations. Capped at ~6 iterations.
+Binary search over an age offset `[0, 20]` years added uniformly to all persons' floor `retirementAge`. The simulation is run at each candidate ages with `annualSpendingTarget = monthlyIncome × 12` (flat). Returns the lowest offset where solvency ≥ target. Each search iteration uses 2,000 simulations. Capped at ~6 iterations.
 
 ### Error responses
 

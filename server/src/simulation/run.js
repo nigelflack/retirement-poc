@@ -38,15 +38,16 @@ function allPercentiles(arr) {
  * @param {object} input
  * @param {object[]} input.people
  * @param {number[][]} input.contributionByYear - [personIndex][year], annual amount in today's money
- * @param {number[]} input.incomeTargetByYear   - [year], annual household income target in today's money
+ * @param {number[]} input.spendingTargetByYear  - [year], annual household spending target in today's money
  * @param {number[]} input.capitalEventsByYear  - [year], signed net capital event in today's money
+ * @param {number[]} input.otherIncomeByYear    - [year], sum of all per-person income streams in today's money
  * @param {number} input.toAge
  *
  * Returns accumulation snapshot, drawdown stats, survival table, and p1–p99 fan chart
  * for every year from today to toAge. No raw paths are returned.
  */
 function runFull(input, config) {
-  const { people, contributionByYear, incomeTargetByYear, capitalEventsByYear, toAge } = input;
+  const { people, contributionByYear, spendingTargetByYear, capitalEventsByYear, otherIncomeByYear, toAge } = input;
   const {
     numSimulations,
     annualReturnMean, annualReturnStdDev,
@@ -126,7 +127,7 @@ function runFull(input, config) {
     retirementRealPots[i] = pot / cumInflation;
 
     // Income in today's money: incomeTargetByYear at retirement year, in today's money.
-    annualIncomes[i] = incomeTargetByYear[householdRetirementYear];
+    annualIncomes[i] = spendingTargetByYear[householdRetirementYear];
 
     // --- Drawdown phase ---
     let ruined = false;
@@ -134,8 +135,8 @@ function runFull(input, config) {
       const inflFactor = Math.exp(infParams.muLn + infParams.sigmaLn * sampleNormal());
       cumInflation *= inflFactor;
 
-      // Income target for this year, inflated from today's money.
-      const inflatedTarget = incomeTargetByYear[y] * cumInflation;
+      // Spending target for this year, inflated from today's money.
+      const inflatedTarget = spendingTargetByYear[y] * cumInflation;
 
       // Sum all active state pensions, inflated from today's money.
       let totalSP = 0;
@@ -145,7 +146,10 @@ function runFull(input, config) {
         }
       }
 
-      const draw = Math.max(0, inflatedTarget - totalSP);
+      // Sum other income streams (BTL, part-time etc.), inflated from today's money.
+      const otherIncome = (otherIncomeByYear[y] || 0) * cumInflation;
+
+      const draw = Math.max(0, inflatedTarget - totalSP - otherIncome);
 
       if (draw > pot) {
         ruined = true;
@@ -200,7 +204,7 @@ function runFull(input, config) {
   }
 
   const sortedIncomes = annualIncomes.slice().sort((a, b) => a - b);
-  const annualIncomeTargetAtRetirement = incomeTargetByYear[householdRetirementYear];
+  const annualSpendingTargetAtRetirement = spendingTargetByYear[householdRetirementYear];
   const realP50AtRetirement = percentilesOf5(retirementRealPots).p50;
 
   return {
@@ -208,9 +212,9 @@ function runFull(input, config) {
     householdRetirementAge,
     householdRetirementName: earliest.name,
     accumulationSnapshot,
-    annualIncomeTarget: annualIncomeTargetAtRetirement,
+    annualSpendingTarget: annualSpendingTargetAtRetirement,
     withdrawalRate: realP50AtRetirement > 0
-      ? parseFloat((annualIncomeTargetAtRetirement / realP50AtRetirement).toFixed(4))
+      ? parseFloat((annualSpendingTargetAtRetirement / realP50AtRetirement).toFixed(4))
       : 0,
     annualIncomeMedian: Math.round(sortedIncomes[Math.floor(numSimulations / 2)]),
     annualIncomeP10: Math.round(sortedIncomes[Math.floor(numSimulations * 0.1)]),

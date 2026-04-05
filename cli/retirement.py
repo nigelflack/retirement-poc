@@ -335,15 +335,15 @@ def main():
                 break
 
     elif args.json:
-        people, monthly_income = prompt_scenario(payload["people"], {}, payload.get("monthlyIncomeTarget", DEFAULT_MONTHLY_INCOME))
+        people, monthly_income = prompt_scenario(payload["people"], {}, payload.get("monthlySpendingTarget", DEFAULT_MONTHLY_INCOME))
         run_payload = {
             "people": people,
-            "monthlyIncomeTarget": monthly_income,
+            "monthlySpendingTarget": monthly_income,
             "toAge": DEFAULT_TO_AGE,
             "debug": args.debug,
         }
-        if "incomeSchedule" in payload:
-            run_payload["incomeSchedule"] = payload["incomeSchedule"]
+        if "spendingSchedule" in payload:
+            run_payload["spendingSchedule"] = payload["spendingSchedule"]
         if "capitalEvents" in payload:
             run_payload["capitalEvents"] = payload["capitalEvents"]
         try:
@@ -356,7 +356,7 @@ def main():
 
     else:
         prev_retirement_ages = {}
-        prev_monthly_income = payload.get("monthlyIncomeTarget", DEFAULT_MONTHLY_INCOME)
+        prev_monthly_income = payload.get("monthlySpendingTarget", DEFAULT_MONTHLY_INCOME)
 
         while True:
             print()
@@ -372,12 +372,12 @@ def main():
 
             run_payload = {
                 "people": people,
-                "monthlyIncomeTarget": monthly_income,
+                "monthlySpendingTarget": monthly_income,
                 "toAge": DEFAULT_TO_AGE,
                 "debug": args.debug,
             }
-            if "incomeSchedule" in payload:
-                run_payload["incomeSchedule"] = payload["incomeSchedule"]
+            if "spendingSchedule" in payload:
+                run_payload["spendingSchedule"] = payload["spendingSchedule"]
             if "capitalEvents" in payload:
                 run_payload["capitalEvents"] = payload["capitalEvents"]
 

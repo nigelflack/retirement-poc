@@ -12,7 +12,7 @@ const SOLVE_SEARCH_CONFIG = { ...config, numSimulations: 2000 };
  * Build the flat dense arrays required by runFull for a simple flat-schedule run.
  * Solve endpoints do not support contribution/income schedules or capital events.
  */
-function buildFlatInput(people, annualIncomeTarget, toAge) {
+function buildFlatInput(people, annualSpendingTarget, toAge) {
   const earliest = people.reduce((best, p) =>
     (p.retirementAge - p.currentAge) < (best.retirementAge - best.currentAge) ? p : best
   );
@@ -26,13 +26,14 @@ function buildFlatInput(people, annualIncomeTarget, toAge) {
     return Array.from({ length: totalYears }, (_, y) => (y < personRetirementYear ? flat : 0));
   });
 
-  const incomeTargetByYear = Array.from({ length: totalYears }, (_, y) =>
-    y >= householdRetirementYear ? annualIncomeTarget : 0
+  const spendingTargetByYear = Array.from({ length: totalYears }, (_, y) =>
+    y >= householdRetirementYear ? annualSpendingTarget : 0
   );
 
   const capitalEventsByYear = new Array(totalYears).fill(0);
+  const otherIncomeByYear = new Array(totalYears).fill(0);
 
-  return { people, contributionByYear, incomeTargetByYear, capitalEventsByYear, toAge };
+  return { people, contributionByYear, spendingTargetByYear, capitalEventsByYear, otherIncomeByYear, toAge };
 }
 
 function validatePeople(people) {
@@ -89,8 +90,8 @@ router.post('/income', (req, res) => {
 
   for (let iter = 0; iter < 50; iter++) {
     const mid = (lo + hi) / 2;
-    const annualIncomeTarget = mid * 12;
-    const result = runFull(buildFlatInput(people, annualIncomeTarget, toAge), SOLVE_SEARCH_CONFIG);
+    const annualSpendingTarget = mid * 12;
+    const result = runFull(buildFlatInput(people, annualSpendingTarget, toAge), SOLVE_SEARCH_CONFIG);
     const solvency = interpolateSolventAt(result.survivalTable, referenceAge);
 
     if (solvency >= targetSolvencyPct) {
@@ -143,8 +144,8 @@ router.post('/ages', (req, res) => {
       continue;
     }
 
-    const annualIncomeTarget = monthlyIncome * 12;
-    const result = runFull(buildFlatInput(currentPeople, annualIncomeTarget, toAge), SOLVE_SEARCH_CONFIG);
+    const annualSpendingTarget = monthlyIncome * 12;
+    const result = runFull(buildFlatInput(currentPeople, annualSpendingTarget, toAge), SOLVE_SEARCH_CONFIG);
     const solvency = interpolateSolventAt(result.survivalTable, referenceAge);
 
     if (solvency >= targetSolvencyPct) {

@@ -220,11 +220,11 @@ export default function ScenarioScreen({ people, onEditDetails, onEditAccounts, 
         }
         return person
       }),
-      monthlyIncomeTarget: income,
+      monthlySpendingTarget: income,
       toAge: 100,
     }
     if (incomeReducesTo !== '' && incomeAfterYear !== '' && Number(incomeReducesTo) < income) {
-      payload.incomeSchedule = [
+      payload.spendingSchedule = [
         { fromYearsFromRetirement: 0, monthlyAmount: income },
         { fromYearsFromRetirement: Number(incomeAfterYear), monthlyAmount: Number(incomeReducesTo) },
       ]
@@ -334,7 +334,7 @@ export default function ScenarioScreen({ people, onEditDetails, onEditAccounts, 
 
   // Save / Load handlers
   function handleSave() {
-    const data = { people, monthlyIncomeTarget: monthlyIncome }
+    const data = { people, monthlySpendingTarget: monthlyIncome }
     // Include per-person contribution schedules if step filled
     data.people = people.map(p => {
       const reducesTo = contribReducesTo[p.name]
@@ -353,7 +353,7 @@ export default function ScenarioScreen({ people, onEditDetails, onEditAccounts, 
       return p
     })
     if (incomeReducesTo !== '' && incomeAfterYear !== '' && Number(incomeReducesTo) < monthlyIncome) {
-      data.incomeSchedule = [
+      data.spendingSchedule = [
         { fromYearsFromRetirement: 0, monthlyAmount: monthlyIncome },
         { fromYearsFromRetirement: Number(incomeAfterYear), monthlyAmount: Number(incomeReducesTo) },
       ]
@@ -387,8 +387,8 @@ export default function ScenarioScreen({ people, onEditDetails, onEditAccounts, 
         }
         onPeopleLoad(data.people)
         // Restore monthly income target from file
-        if (typeof data.monthlyIncomeTarget === 'number') {
-          setMonthlyIncome(data.monthlyIncomeTarget)
+        if (typeof data.monthlySpendingTarget === 'number') {
+          setMonthlyIncome(data.monthlySpendingTarget)
         }
         // Back-fill contribution step state per person
         const newContribReducesTo = {}
@@ -410,7 +410,7 @@ export default function ScenarioScreen({ people, onEditDetails, onEditAccounts, 
         setContribLastYears(newContribLastYears)
         setContribStepOpen(newContribStepOpen)
         // Back-fill income step state
-        const incomeSched = data.incomeSchedule
+        const incomeSched = data.spendingSchedule
         if (Array.isArray(incomeSched) && incomeSched.length === 2) {
           setIncomeReducesTo(incomeSched[1].monthlyAmount)
           setIncomeAfterYear(incomeSched[1].fromYearsFromRetirement)

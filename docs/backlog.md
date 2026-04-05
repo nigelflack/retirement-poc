@@ -12,6 +12,7 @@ Items move here when deferred from a completed iteration. They move out when pic
 - **`/scenarios` page not linked from the main wizard** — must be navigated to directly (deferred from v0.8)
 - **Panel 4 — Adjust your plan** — contributions review panel; not yet started (deferred from v0.6)
 - **Fan chart** — p1–p99 portfolio percentile visualisation; data already in API response, no UI yet (deferred from v0.6)
+- **Scenario summary panel** — labelled timeline of capital events, income streams, and spending target shown in the detailed breakdown; requires `label` fields on schedule entries and capital events (deferred from v0.13)
 - **Retire-together parity** — Panel 2 and 3 solve calls advance all persons' ages uniformly; one person cannot retire significantly earlier than another independently via the solve
 
 ## Simulation model

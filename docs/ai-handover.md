@@ -1,6 +1,6 @@
 # AI Handover
 
-_Last updated: v0.12 complete_
+_Last updated: v0.13 complete_
 
 Read this at the start of a session to get oriented quickly. For what the system does, see `docs/spec.md`. For the next iteration plan, see `docs/iterations/`. For the backlog, see `docs/backlog.md`.
 
@@ -8,19 +8,17 @@ Read this at the start of a session to get oriented quickly. For what the system
 
 ## Current version
 
-**v0.12 (complete)** — Schedule field renaming + monthly amounts + simple screen step-change inputs.
+**v0.13 (complete)** — Spending rename + per-person income streams + labels.
 
-Key changes:
-- All schedule amount fields in the JSON/API now use **monthly** values (`monthlyAmount`, `monthlyIncomeTarget`). The server adapter (`simulate.js`) multiplies them ×12 before the engine.
-- Field renames: `fromYear` → `fromYearsFromToday` (contributions) or `fromYearsFromRetirement` (income), `year` → `yearsFromToday` (capital events).
-- `annualIncomeTarget` in the `/simulate` request replaced by `monthlyIncomeTarget`.
-- UI (`ScenarioScreen.jsx`) now supports inline step-change disclosure sections in Panel 1:
-  - Per-person **contribution step-change** (expands below the age spinners): "reduces to £/mo for the last N years before retirement"
-  - Household **income step-change** (expands below the income spinner): "reduces to £/mo after N years in retirement"
-  - Sections auto-expand on file load if the loaded JSON contains a 2-entry schedule.
-- Save/load now includes `monthlyIncomeTarget`, `contributionSchedule` (per person), `incomeSchedule`, and `capitalEvents`.
+Key changes from v0.12:
+- **Spending rename (breaking):** `monthlyIncomeTarget` → `monthlySpendingTarget`; `incomeSchedule` → `spendingSchedule`; `annualIncomeTarget` → `annualSpendingTarget` in response. Engine variable `incomeTargetByYear` → `spendingTargetByYear`.
+- **Per-person `incomeStreams`** (optional array on each person): each entry has `fromYearsFromToday`, optional `toYearsFromToday` (exclusive; absent = run to end), `monthlyAmount`, optional `label`. The adapter resolves these to `otherIncomeByYear` (summed across all people) and passes to the engine. The engine offsets the annual draw: `draw = max(0, inflatedSpendingTarget − totalSP − otherIncome)`.
+- **Labels (optional `label` string)** on: top-level scenario, `spendingSchedule[]`, `contributionSchedule[]`, `capitalEvents[]`, `incomeStreams[]`. Display-only; no behavioural effect.
+- `docs/api.md` updated with all new field names and `incomeStreams` / `label` documentation.
+- Sample JSON files (`cli/inputs/nigel-mimi.json`, `ui/src/scenarios/nigel-mimi.json`) updated with new field names, labels, and an example BTL income stream for Nigel.
+- Server tests: 22/22 passing (includes 2 new income stream tests).
 
-**Note:** `statePension.annualAmount` remains annual (unconverted) — this is intentional.
+**Note:** `statePension.annualAmount` remains annual (unconverted) — intentional. Income streams are only active during drawdown (accumulation-phase income stream support deferred).
 
 ---
 
@@ -35,6 +33,7 @@ Nothing in progress. See `docs/backlog.md` for candidate next items.
 - Step-change UI supports exactly 2-entry schedules (flat → one step). Multi-step schedules from file are ignored by the UI (though the server supports them).
 - Solve endpoints (Panel 2) always use the flat model — step-change inputs are not forwarded to `/solve/income` or `/solve/ages`.
 - Capital events from a loaded file are passed through to the simulation but cannot be edited in the UI.
+- Income streams from a loaded file are passed through to the simulation but cannot be edited in the UI.
 
 ---
 

@@ -3,6 +3,9 @@
     {
       "name": "Nigel",
       "currentAge": 52,
+      "incomeStreams": [
+        { "label": "BTL rental", "fromYearsFromToday": 0, "toYearsFromToday": 10, "monthlyAmount": 800 }
+      ],
       "accounts": [
         { "name": "Standard Life", "type": "pension", "currentValue": 140000 },
         { "name": "Vanguard SIPP", "type": "pension", "currentValue": 190000 },
@@ -28,13 +31,14 @@
       ]
     }
   ],
-  "monthlyIncomeTarget": 4000,
-  "incomeSchedule": [
+  "label": "Base case",
+  "monthlySpendingTarget": 4000,
+  "spendingSchedule": [
     { "fromYearsFromRetirement": 0, "monthlyAmount": 4000 },
-    { "fromYearsFromRetirement": 10, "monthlyAmount": 3000 }
+    { "fromYearsFromRetirement": 10, "monthlyAmount": 3000, "label": "Reduced spending after 10 yrs" }
   ],
   "capitalEvents": [
-    { "yearsFromToday": 3, "amount": -100000 },
-    { "yearsFromToday": 15, "amount": 100000 }
+    { "yearsFromToday": 3, "amount": -100000, "label": "Boat purchase" },
+    { "yearsFromToday": 15, "amount": 100000, "label": "Inheritance" }
   ]
 }

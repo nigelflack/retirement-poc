@@ -3,10 +3,13 @@
     {
       "name": "Nigel",
       "currentAge": 52,
+      "incomeStreams": [
+        { "label": "BTL rental", "fromYearsFromToday": 0, "toYearsFromToday": 18, "monthlyAmount": 600 }
+      ],
       "accounts": [
-        { "name": "Standard Life", "type": "pension", "currentValue": 140000, "monthlyContribution": 800 },
-        { "name": "Vanguard SIPP", "type": "pension", "currentValue": 190000, "monthlyContribution": 1600 },
-        { "name": "Vanguard ISA", "type": "isa", "currentValue": 61000, "monthlyContribution": 1600 }
+        { "name": "Standard Life", "type": "pension", "currentValue": 140000 },
+        { "name": "Vanguard SIPP", "type": "pension", "currentValue": 190000 },
+        { "name": "Vanguard ISA", "type": "isa", "currentValue": 61000 }
       ],
       "statePension": { "fromAge": 67, "annualAmount": 12000 },
       "contributionSchedule": [
@@ -18,9 +21,9 @@
       "name": "Mimi",
       "currentAge": 46,
       "accounts": [
-        { "name": "Scottish Widows", "type": "pension", "currentValue": 40000, "monthlyContribution": 0 },
-        { "name": "ISA", "type": "isa", "currentValue": 20000, "monthlyContribution": 100 },
-        { "name": "Shares", "type": "isa", "currentValue": 30000, "monthlyContribution": 0 }
+        { "name": "Scottish Widows", "type": "pension", "currentValue": 40000 },
+        { "name": "ISA", "type": "isa", "currentValue": 20000 },
+        { "name": "Shares", "type": "isa", "currentValue": 30000}
       ],
       "statePension": { "fromAge": 67, "annualAmount": 10000 },
       "contributionSchedule": [
@@ -29,13 +32,13 @@
       ]
     }
   ],
-  "annualIncomeTarget": 48000,
-  "incomeSchedule": [
-    { "fromYearsFromRetirement": 0, "monthlyAmount": 4000 },
-    { "fromYearsFromRetirement": 10, "monthlyAmount": 3000 }
+  "label": "Base case",
+  "monthlySpendingTarget": 4000,
+  "spendingSchedule": [
+    { "fromYearsFromRetirement": 0, "monthlyAmount": 5000 },
+    { "fromYearsFromRetirement": 10, "monthlyAmount": 3000, "label": "Reduced spending after 10 yrs" }
   ],
   "capitalEvents": [
-    { "yearsFromToday": 3, "amount": -100000 },
-    { "yearsFromToday": 15, "amount": 100000 }
+    { "yearsFromToday": 18, "amount": 200000, "label": "Tequila Wharf Sale" }
   ]
 }
