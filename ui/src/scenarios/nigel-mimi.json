@@ -6,13 +6,12 @@
       "accounts": [
         { "name": "Standard Life", "type": "pension", "currentValue": 140000, "monthlyContribution": 800 },
         { "name": "Vanguard SIPP", "type": "pension", "currentValue": 190000, "monthlyContribution": 1600 },
-        { "name": "Vanguard ISA", "type": "isa", "currentValue": 61000, "monthlyContribution": 1600 },
-        { "name": "Car", "type": "isa", "currentValue": 35000, "monthlyContribution": 0 }
+        { "name": "Vanguard ISA", "type": "isa", "currentValue": 61000, "monthlyContribution": 1600 }
       ],
       "statePension": { "fromAge": 67, "annualAmount": 12000 },
       "contributionSchedule": [
-        { "fromYear": 0, "annualAmount": 48000 },
-        { "fromYear": 5, "annualAmount": 24000 }
+        { "fromYearsFromToday": 0, "monthlyAmount": 4000 },
+        { "fromYearsFromToday": 5, "monthlyAmount": 2000 }
       ]
     },
     {
@@ -25,18 +24,18 @@
       ],
       "statePension": { "fromAge": 67, "annualAmount": 10000 },
       "contributionSchedule": [
-        { "fromYear": 0, "annualAmount": 1200 },
-        { "fromYear": 5, "annualAmount": 600 }
+        { "fromYearsFromToday": 0, "monthlyAmount": 100 },
+        { "fromYearsFromToday": 5, "monthlyAmount": 50 }
       ]
     }
   ],
   "annualIncomeTarget": 48000,
   "incomeSchedule": [
-    { "fromYear": 0, "annualAmount": 48000 },
-    { "fromYear": 10, "annualAmount": 36000 }
+    { "fromYearsFromRetirement": 0, "monthlyAmount": 4000 },
+    { "fromYearsFromRetirement": 10, "monthlyAmount": 3000 }
   ],
   "capitalEvents": [
-    { "year": 3, "amount": -100000 },
-    { "year": 15, "amount": 100000 }
+    { "yearsFromToday": 3, "amount": -100000 },
+    { "yearsFromToday": 15, "amount": 100000 }
   ]
 }

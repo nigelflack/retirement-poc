@@ -1,6 +1,6 @@
 # AI Handover
 
-_Last updated: 4 April 2026 (v0.11 complete)_
+_Last updated: v0.12 complete_
 
 Read this at the start of a session to get oriented quickly. For what the system does, see `docs/spec.md`. For the next iteration plan, see `docs/iterations/`. For the backlog, see `docs/backlog.md`.
 
@@ -8,7 +8,19 @@ Read this at the start of a session to get oriented quickly. For what the system
 
 ## Current version
 
-**v0.11 (complete)** — Schedule-aware simulation engine + API overhaul. `POST /run` renamed to `POST /simulate`. `withdrawalRate` removed as an input; replaced by `annualIncomeTarget` (today's money). Three optional schedule fields added to `/simulate`: `contributionSchedule` (per person), `incomeSchedule` (household), `capitalEvents` (household). Server-side adapter (`resolveSchedules` in `simulate.js`) resolves sparse schedules to dense per-year arrays before calling `runFull`. Engine (`run.js`) updated to accept and use those arrays. Solve routes updated to remove internal `withdrawalRate` derivation. CLI prompt updated from withdrawal rate % to monthly income; `--debug` flag added for year-by-year table output. `withdrawalRate` remains as a computed output field on `/simulate` response.
+**v0.12 (complete)** — Schedule field renaming + monthly amounts + simple screen step-change inputs.
+
+Key changes:
+- All schedule amount fields in the JSON/API now use **monthly** values (`monthlyAmount`, `monthlyIncomeTarget`). The server adapter (`simulate.js`) multiplies them ×12 before the engine.
+- Field renames: `fromYear` → `fromYearsFromToday` (contributions) or `fromYearsFromRetirement` (income), `year` → `yearsFromToday` (capital events).
+- `annualIncomeTarget` in the `/simulate` request replaced by `monthlyIncomeTarget`.
+- UI (`ScenarioScreen.jsx`) now supports inline step-change disclosure sections in Panel 1:
+  - Per-person **contribution step-change** (expands below the age spinners): "reduces to £/mo for the last N years before retirement"
+  - Household **income step-change** (expands below the income spinner): "reduces to £/mo after N years in retirement"
+  - Sections auto-expand on file load if the loaded JSON contains a 2-entry schedule.
+- Save/load now includes `monthlyIncomeTarget`, `contributionSchedule` (per person), `incomeSchedule`, and `capitalEvents`.
+
+**Note:** `statePension.annualAmount` remains annual (unconverted) — this is intentional.
 
 ---
 
@@ -20,7 +32,9 @@ Nothing in progress. See `docs/backlog.md` for candidate next items.
 
 ## Known issues / rough edges
 
-- UI does not yet expose `contributionSchedule`, `incomeSchedule`, or `capitalEvents` inputs — these are supported by the API and CLI only.
+- Step-change UI supports exactly 2-entry schedules (flat → one step). Multi-step schedules from file are ignored by the UI (though the server supports them).
+- Solve endpoints (Panel 2) always use the flat model — step-change inputs are not forwarded to `/solve/income` or `/solve/ages`.
+- Capital events from a loaded file are passed through to the simulation but cannot be edited in the UI.
 
 ---
 

@@ -15,7 +15,8 @@ const simulationConfig = require('../../config/simulation.json');
  * @returns {{ contributionByYear: number[][], incomeTargetByYear: number[], capitalEventsByYear: number[] }}
  */
 function resolveSchedules(input, totalYears, householdRetirementYear, retirementYears) {
-  const { people, annualIncomeTarget, incomeSchedule, capitalEvents } = input;
+  const { people, monthlyIncomeTarget, incomeSchedule, capitalEvents } = input;
+  const annualIncomeTarget = monthlyIncomeTarget * 12;
 
   // --- contributionByYear: one array per person ---
   const contributionByYear = people.map((person, pi) => {
@@ -24,17 +25,17 @@ function resolveSchedules(input, totalYears, householdRetirementYear, retirement
     const personRetirementYear = retirementYears[pi];
 
     if (schedule && schedule.length > 0) {
-      // Sort schedule ascending by fromYear
-      const sorted = schedule.slice().sort((a, b) => a.fromYear - b.fromYear);
+      // Sort schedule ascending by fromYearsFromToday
+      const sorted = schedule.slice().sort((a, b) => a.fromYearsFromToday - b.fromYearsFromToday);
       let si = sorted.length - 1; // start from last step
       for (let y = 0; y < personRetirementYear; y++) {
-        // Find the applicable step: the last one with fromYear <= y
-        while (si > 0 && sorted[si].fromYear > y) si--;
+        // Find the applicable step: the last one with fromYearsFromToday <= y
+        while (si > 0 && sorted[si].fromYearsFromToday > y) si--;
         // find the correct segment
         let amount = 0;
         for (let k = sorted.length - 1; k >= 0; k--) {
-          if (sorted[k].fromYear <= y) {
-            amount = sorted[k].annualAmount;
+          if (sorted[k].fromYearsFromToday <= y) {
+            amount = sorted[k].monthlyAmount * 12;
             break;
           }
         }
@@ -58,11 +59,12 @@ function resolveSchedules(input, totalYears, householdRetirementYear, retirement
 
   for (let y = householdRetirementYear; y < totalYears; y++) {
     if (schedule) {
-      // Find the last step with fromYear <= y
+      // Find the last step with fromYearsFromRetirement <= (y - householdRetirementYear)
+      const yearsIntoRetirement = y - householdRetirementYear;
       let amount = 0;
       for (let k = schedule.length - 1; k >= 0; k--) {
-        if (schedule[k].fromYear <= y) {
-          amount = schedule[k].annualAmount;
+        if (schedule[k].fromYearsFromRetirement <= yearsIntoRetirement) {
+          amount = schedule[k].monthlyAmount * 12;
           break;
         }
       }
@@ -76,8 +78,8 @@ function resolveSchedules(input, totalYears, householdRetirementYear, retirement
   const capitalEventsByYear = new Array(totalYears).fill(0);
   if (capitalEvents) {
     for (const event of capitalEvents) {
-      if (event.year >= 0 && event.year < totalYears) {
-        capitalEventsByYear[event.year] += event.amount;
+      if (event.yearsFromToday >= 0 && event.yearsFromToday < totalYears) {
+        capitalEventsByYear[event.yearsFromToday] += event.amount;
       }
     }
   }
@@ -106,7 +108,7 @@ function validatePeople(people) {
 router.post('/', (req, res) => {
   const {
     people,
-    annualIncomeTarget,
+    monthlyIncomeTarget,
     incomeSchedule,
     capitalEvents,
     toAge = 100,
@@ -116,8 +118,8 @@ router.post('/', (req, res) => {
   const peopleErr = validatePeople(people);
   if (peopleErr) return res.status(400).json({ error: peopleErr });
 
-  if (typeof annualIncomeTarget !== 'number' || annualIncomeTarget <= 0) {
-    return res.status(400).json({ error: 'annualIncomeTarget must be a positive number' });
+  if (typeof monthlyIncomeTarget !== 'number' || monthlyIncomeTarget <= 0) {
+    return res.status(400).json({ error: 'monthlyIncomeTarget must be a positive number' });
   }
   if (typeof toAge !== 'number' || toAge <= 0) {
     return res.status(400).json({ error: 'toAge must be a positive number' });
@@ -134,7 +136,7 @@ router.post('/', (req, res) => {
   const retirementYears = people.map(p => p.retirementAge - p.currentAge);
 
   const resolved = resolveSchedules(
-    { people, annualIncomeTarget, incomeSchedule, capitalEvents },
+    { people, monthlyIncomeTarget, incomeSchedule, capitalEvents },
     totalYears,
     householdRetirementYear,
     retirementYears,

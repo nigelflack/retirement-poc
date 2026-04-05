@@ -335,10 +335,10 @@ def main():
                 break
 
     elif args.json:
-        people, monthly_income = prompt_scenario(payload["people"], {}, payload.get("annualIncomeTarget", DEFAULT_MONTHLY_INCOME * 12) / 12)
+        people, monthly_income = prompt_scenario(payload["people"], {}, payload.get("monthlyIncomeTarget", DEFAULT_MONTHLY_INCOME))
         run_payload = {
             "people": people,
-            "annualIncomeTarget": monthly_income * 12,
+            "monthlyIncomeTarget": monthly_income,
             "toAge": DEFAULT_TO_AGE,
             "debug": args.debug,
         }
@@ -356,7 +356,7 @@ def main():
 
     else:
         prev_retirement_ages = {}
-        prev_monthly_income = payload.get("annualIncomeTarget", DEFAULT_MONTHLY_INCOME * 12) / 12
+        prev_monthly_income = payload.get("monthlyIncomeTarget", DEFAULT_MONTHLY_INCOME)
 
         while True:
             print()
@@ -372,7 +372,7 @@ def main():
 
             run_payload = {
                 "people": people,
-                "annualIncomeTarget": monthly_income * 12,
+                "monthlyIncomeTarget": monthly_income,
                 "toAge": DEFAULT_TO_AGE,
                 "debug": args.debug,
             }

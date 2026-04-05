@@ -47,9 +47,17 @@ Review `docs/backlog.md` and write the iteration plan in `docs/iterations/vX-Y.m
 - what's new
 - what's out of scope / deferred
 - any input/output changes
+- a **files-in-scope table** listing every file that will be created or modified, and why
 - acceptance checks — how you will know the iteration is done
 
-Do not start implementation until this exists.
+The files-in-scope table should follow this format:
+
+| File | Change |
+|------|--------|
+| `server/src/routes/simulate.js` | rename schedule keys |
+| `ui/src/components/scenario/ScenarioScreen.jsx` | add step-change UI |
+
+Do not start implementation until this exists. The files-in-scope table is required — it allows targeted file reads at the start of implementation and avoids speculative reads of files that will not change.
 
 ### 2. Update design artefacts
 

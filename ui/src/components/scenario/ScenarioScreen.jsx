@@ -180,6 +180,19 @@ export default function ScenarioScreen({ people, onEditDetails, onEditAccounts, 
   const [showBreakdown, setShowBreakdown] = useState(false)
   const [showDebug, setShowDebug] = useState(false)
 
+  // Step-change state (per-person contribution steps)
+  const [contribStepOpen, setContribStepOpen] = useState({})      // { personName: bool }
+  const [contribReducesTo, setContribReducesTo] = useState({})    // { personName: number|'' }
+  const [contribLastYears, setContribLastYears] = useState({})    // { personName: number|'' }
+
+  // Step-change state (household income step)
+  const [incomeStepOpen, setIncomeStepOpen] = useState(false)
+  const [incomeReducesTo, setIncomeReducesTo] = useState('')
+  const [incomeAfterYear, setIncomeAfterYear] = useState('')
+
+  // Capital events loaded from file (passthrough)
+  const [loadedCapitalEvents, setLoadedCapitalEvents] = useState(null)
+
   // Load/save state
   const [loadError, setLoadError] = useState(null)
   const fileInputRef = useRef(null)
@@ -192,15 +205,33 @@ export default function ScenarioScreen({ people, onEditDetails, onEditAccounts, 
 
   // Build the POST /simulate payload
   const buildPayload = useCallback((ages, income) => {
-    return {
-      people: people.map(p => ({
-        ...p,
-        retirementAge: ages[p.name],
-      })),
-      annualIncomeTarget: income * 12,
+    const payload = {
+      people: people.map(p => {
+        const person = { ...p, retirementAge: ages[p.name] }
+        const reducesTo = contribReducesTo[p.name]
+        const lastYears = contribLastYears[p.name]
+        const yearsToRetirement = ages[p.name] - p.currentAge
+        if (reducesTo !== '' && reducesTo !== undefined && lastYears !== '' && lastYears !== undefined && Number(lastYears) < yearsToRetirement) {
+          const flatMonthly = p.accounts.reduce((s, a) => s + (a.monthlyContribution || 0), 0)
+          person.contributionSchedule = [
+            { fromYearsFromToday: 0, monthlyAmount: flatMonthly },
+            { fromYearsFromToday: yearsToRetirement - Number(lastYears), monthlyAmount: Number(reducesTo) },
+          ]
+        }
+        return person
+      }),
+      monthlyIncomeTarget: income,
       toAge: 100,
     }
-  }, [people])
+    if (incomeReducesTo !== '' && incomeAfterYear !== '' && Number(incomeReducesTo) < income) {
+      payload.incomeSchedule = [
+        { fromYearsFromRetirement: 0, monthlyAmount: income },
+        { fromYearsFromRetirement: Number(incomeAfterYear), monthlyAmount: Number(incomeReducesTo) },
+      ]
+    }
+    if (loadedCapitalEvents) payload.capitalEvents = loadedCapitalEvents
+    return payload
+  }, [people, contribReducesTo, contribLastYears, incomeReducesTo, incomeAfterYear, loadedCapitalEvents])
 
   const runSimulation = useCallback(async (ages, income, p50) => {
     setIsLoading(true)
@@ -303,7 +334,31 @@ export default function ScenarioScreen({ people, onEditDetails, onEditAccounts, 
 
   // Save / Load handlers
   function handleSave() {
-    const data = { people }
+    const data = { people, monthlyIncomeTarget: monthlyIncome }
+    // Include per-person contribution schedules if step filled
+    data.people = people.map(p => {
+      const reducesTo = contribReducesTo[p.name]
+      const lastYears = contribLastYears[p.name]
+      const yearsToRetirement = retirementAges[p.name] - p.currentAge
+      if (reducesTo !== '' && reducesTo !== undefined && lastYears !== '' && lastYears !== undefined && Number(lastYears) < yearsToRetirement) {
+        const flatMonthly = p.accounts.reduce((s, a) => s + (a.monthlyContribution || 0), 0)
+        return {
+          ...p,
+          contributionSchedule: [
+            { fromYearsFromToday: 0, monthlyAmount: flatMonthly },
+            { fromYearsFromToday: yearsToRetirement - Number(lastYears), monthlyAmount: Number(reducesTo) },
+          ],
+        }
+      }
+      return p
+    })
+    if (incomeReducesTo !== '' && incomeAfterYear !== '' && Number(incomeReducesTo) < monthlyIncome) {
+      data.incomeSchedule = [
+        { fromYearsFromRetirement: 0, monthlyAmount: monthlyIncome },
+        { fromYearsFromRetirement: Number(incomeAfterYear), monthlyAmount: Number(incomeReducesTo) },
+      ]
+    }
+    if (loadedCapitalEvents) data.capitalEvents = loadedCapitalEvents
     const filename = people.map(p => p.name.toLowerCase().replace(/\s+/g, '-')).join('-') + '.json'
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
@@ -331,6 +386,42 @@ export default function ScenarioScreen({ people, onEditDetails, onEditAccounts, 
           return
         }
         onPeopleLoad(data.people)
+        // Restore monthly income target from file
+        if (typeof data.monthlyIncomeTarget === 'number') {
+          setMonthlyIncome(data.monthlyIncomeTarget)
+        }
+        // Back-fill contribution step state per person
+        const newContribReducesTo = {}
+        const newContribLastYears = {}
+        const newContribStepOpen = {}
+        data.people.forEach(p => {
+          const sched = p.contributionSchedule
+          if (Array.isArray(sched) && sched.length === 2) {
+            const defaultRetAge = Math.min(p.currentAge + 10, 65)
+            const yearsToRetirement = defaultRetAge - p.currentAge
+            const stepEntry = sched[1]
+            newContribReducesTo[p.name] = stepEntry.monthlyAmount
+            const inferredLastYears = yearsToRetirement - stepEntry.fromYearsFromToday
+            newContribLastYears[p.name] = inferredLastYears > 0 ? inferredLastYears : ''
+            newContribStepOpen[p.name] = true
+          }
+        })
+        setContribReducesTo(newContribReducesTo)
+        setContribLastYears(newContribLastYears)
+        setContribStepOpen(newContribStepOpen)
+        // Back-fill income step state
+        const incomeSched = data.incomeSchedule
+        if (Array.isArray(incomeSched) && incomeSched.length === 2) {
+          setIncomeReducesTo(incomeSched[1].monthlyAmount)
+          setIncomeAfterYear(incomeSched[1].fromYearsFromRetirement)
+          setIncomeStepOpen(true)
+        } else {
+          setIncomeReducesTo('')
+          setIncomeAfterYear('')
+          setIncomeStepOpen(false)
+        }
+        // Store capital events
+        setLoadedCapitalEvents(data.capitalEvents ?? null)
       } catch {
         setLoadError('Could not load file — invalid format.')
       }
@@ -548,6 +639,67 @@ export default function ScenarioScreen({ people, onEditDetails, onEditAccounts, 
                     <Label htmlFor="retireTogether" className="cursor-pointer text-sm">Retire together</Label>
                   </div>
                 )}
+
+                {/* Contribution step-change disclosure */}
+                <div className="pt-2 space-y-2">
+                  {people.map(p => {
+                    const yearsToRetirement = retirementAges[p.name] - p.currentAge
+                    const isOpen = !!contribStepOpen[p.name]
+                    const reducesTo = contribReducesTo[p.name] ?? ''
+                    const lastYears = contribLastYears[p.name] ?? ''
+                    const warnReducesTo = reducesTo !== '' && Number(reducesTo) >= p.accounts.reduce((s, a) => s + (a.monthlyContribution || 0), 0)
+                    const warnLastYears = lastYears !== '' && Number(lastYears) >= yearsToRetirement
+                    return (
+                      <div key={p.name} className="text-xs">
+                        <button
+                          className="text-primary hover:underline underline-offset-2"
+                          onClick={() => setContribStepOpen(prev => ({ ...prev, [p.name]: !isOpen }))}
+                          disabled={isLoading}
+                        >
+                          {isOpen ? '▲' : '▼'} {hasPartner ? `${p.name}: ` : ''}Add contribution step-change
+                        </button>
+                        {isOpen && (
+                          <div className="mt-2 space-y-2 pl-2 border-l">
+                            <div className="space-y-1">
+                              <label className="text-muted-foreground">Reduces to (£/mo)</label>
+                              <Input
+                                type="number"
+                                min={0}
+                                className="w-28 text-sm"
+                                value={reducesTo}
+                                onChange={e => {
+                                  setContribReducesTo(prev => ({ ...prev, [p.name]: e.target.value }))
+                                  scheduleRun(retirementAges, monthlyIncome)
+                                }}
+                                disabled={isLoading}
+                              />
+                              {warnReducesTo && (
+                                <p className="text-destructive">Must be less than current contributions</p>
+                              )}
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-muted-foreground">For the last N years before retirement</label>
+                              <Input
+                                type="number"
+                                min={1}
+                                className="w-20 text-sm"
+                                value={lastYears}
+                                onChange={e => {
+                                  setContribLastYears(prev => ({ ...prev, [p.name]: e.target.value }))
+                                  scheduleRun(retirementAges, monthlyIncome)
+                                }}
+                                disabled={isLoading}
+                              />
+                              {warnLastYears && (
+                                <p className="text-destructive">Must be less than years to retirement ({yearsToRetirement})</p>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
 
               {/* Divider */}
@@ -581,6 +733,55 @@ export default function ScenarioScreen({ people, onEditDetails, onEditAccounts, 
                     aria-label="Decrease income"
                   >↓</button>
                   <span className="text-xs text-muted-foreground">per month</span>
+                </div>
+
+                {/* Income step-change disclosure */}
+                <div className="pt-1 text-xs text-center">
+                  <button
+                    className="text-primary hover:underline underline-offset-2"
+                    onClick={() => setIncomeStepOpen(v => !v)}
+                    disabled={isLoading}
+                  >
+                    {incomeStepOpen ? '▲' : '▼'} Add income step-change
+                  </button>
+                  {incomeStepOpen && (() => {
+                    const warnReducesTo = incomeReducesTo !== '' && Number(incomeReducesTo) >= monthlyIncome
+                    return (
+                      <div className="mt-2 space-y-2 text-left border-l pl-2">
+                        <div className="space-y-1">
+                          <label className="text-muted-foreground">Reduces to (£/mo)</label>
+                          <Input
+                            type="number"
+                            min={0}
+                            className="w-28 text-sm"
+                            value={incomeReducesTo}
+                            onChange={e => {
+                              setIncomeReducesTo(e.target.value)
+                              scheduleRun(retirementAges, monthlyIncome)
+                            }}
+                            disabled={isLoading}
+                          />
+                          {warnReducesTo && (
+                            <p className="text-destructive">Must be less than income target (£{monthlyIncome}/mo)</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-muted-foreground">After N years in retirement</label>
+                          <Input
+                            type="number"
+                            min={1}
+                            className="w-20 text-sm"
+                            value={incomeAfterYear}
+                            onChange={e => {
+                              setIncomeAfterYear(e.target.value)
+                              scheduleRun(retirementAges, monthlyIncome)
+                            }}
+                            disabled={isLoading}
+                          />
+                        </div>
+                      </div>
+                    )
+                  })()}
                 </div>
               </div>
             </div>

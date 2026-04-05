@@ -26,19 +26,19 @@ Run a full single-pass Monte Carlo simulation (accumulation + drawdown) and retu
       ],
       "statePension": { "annualAmount": 11500, "fromAge": 67 },
       "contributionSchedule": [
-        { "fromYear": 0, "annualAmount": 6000 },
-        { "fromYear": 10, "annualAmount": 9600 }
+        { "fromYearsFromToday": 0, "monthlyAmount": 500 },
+        { "fromYearsFromToday": 10, "monthlyAmount": 800 }
       ]
     }
   ],
-  "annualIncomeTarget": 40000,
+  "monthlyIncomeTarget": 3333,
   "incomeSchedule": [
-    { "fromYear": 22, "annualAmount": 40000 },
-    { "fromYear": 35, "annualAmount": 28000 }
+    { "fromYearsFromRetirement": 0, "monthlyAmount": 3333 },
+    { "fromYearsFromRetirement": 13, "monthlyAmount": 2333 }
   ],
   "capitalEvents": [
-    { "year": 18, "amount": 50000 },
-    { "year": 24, "amount": -10000 }
+    { "yearsFromToday": 18, "amount": 50000 },
+    { "yearsFromToday": 24, "amount": -10000 }
   ],
   "toAge": 100,
   "debug": false
@@ -49,10 +49,10 @@ Run a full single-pass Monte Carlo simulation (accumulation + drawdown) and retu
 - `accounts[].currentValue` — current pot value in today's £
 - `accounts[].monthlyContribution` — monthly contribution until retirement (used as the default flat contribution if `contributionSchedule` is absent)
 - `statePension` — optional; amounts in today's money, inflated in simulation
-- `annualIncomeTarget` — desired total household annual income in today's money (£). Required.
-- `contributionSchedule` — optional per-person step schedule. `fromYear` is years from today (`targetAge - currentAge`). If absent, flat contribution from `accounts[].monthlyContribution` is used.
-- `incomeSchedule` — optional household step schedule overriding `annualIncomeTarget` per year. `fromYear` is years from today relative to the earliest-retiring person. Entries before household retirement year are ignored. If absent, `annualIncomeTarget` is used flat for all drawdown years.
-- `capitalEvents` — optional household lump-sum events. `year` is years from today. `amount` is signed (positive = inflow, negative = outflow). Applied before that year's return factor.
+- `monthlyIncomeTarget` — desired total household monthly income in today's money (£). Required.
+- `contributionSchedule` — optional per-person step schedule. `fromYearsFromToday` is years from today (`targetAge - currentAge`). `monthlyAmount` is monthly £ (adapter multiplies by 12). If absent, flat contribution from `accounts[].monthlyContribution` is used.
+- `incomeSchedule` — optional household step schedule. `fromYearsFromRetirement` is years from household retirement (0 = retirement year). `monthlyAmount` is monthly £ (adapter multiplies by 12). If absent, `monthlyIncomeTarget` is used flat for all drawdown years.
+- `capitalEvents` — optional household lump-sum events. `yearsFromToday` is years from today. `amount` is signed (positive = inflow, negative = outflow). Applied before that year's return factor.
 - `toAge` — simulation horizon (default `100` if omitted)
 - `debug` — if `true`, response includes `resolvedSchedules` (the three pre-resolved dense arrays). Default `false`.
 
