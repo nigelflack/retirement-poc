@@ -56,7 +56,19 @@ Collects name and age for one or two people. Pre-populates from existing state w
 
 ### Wizard — Step 2: Your assets
 
-Collects accounts and state pension per person. Pre-populates from existing state when navigating back ("Edit accounts") from the scenario screen.
+Collects all per-person and household financial data. Pre-populates from existing state when navigating back ("Edit accounts") from the scenario screen.
+
+**Layout**: tabs — one tab per person, plus a "Household" tab. All sections within each tab are independently collapsible (accordion):
+
+**Per-person tab sections:**
+- **Accounts** (always visible) — one row per account: label (text), balance (£), and monthly contribution (£). Add/remove rows.
+- **State pension** (always visible) — annual amount (£) and from-age (years). A "Has state pension" checkbox gates the fields.
+- **Contributions** (collapsible) — multi-step `contributionSchedule`. Columns: `Month`, `Monthly (£)`, `Label (optional)`, ✕. Entries are sorted by month ascending. If no schedule rows exist, the per-account `monthlyContribution` is used as the flat rate.
+- **Income streams** (collapsible) — per-person `incomeStreams`. Columns: `From (yrs)`, `To (yrs)`, `Monthly (£)`, `Label (optional)`, ✕. `To` is optional (blank = run to end of drawdown).
+
+**Household tab sections:**
+- **Scenario label** — a text input for the optional top-level `label` string.
+- **Capital events** (collapsible) — list of one-off cash flows. Columns: `Year offset`, `Amount (£)`, `Label (optional)`, ✕. Year offset is years from today; negative amounts are outflows.
 
 ### Scenario screen header
 
@@ -65,6 +77,8 @@ Collects accounts and state pension per person. Pre-populates from existing stat
 ### Panel 1 — Your retirement goal
 
 Retirement age spinners (per person), monthly income field, retire-together toggle (two-person), solvency bar (`1 − probabilityOfRuin`), projected pot (median real pot at retirement), at-a-glance solvency label. Re-runs on every control change (debounced).
+
+**Spending schedule** (collapsible, under the income field) — a multi-step `spendingSchedule` list. Columns: `From year` (years from retirement), `Monthly (£)`, `Label (optional)`, ✕. "+ Add step" appends a new row. Steps are sent as `spendingSchedule` in the simulation payload; overrides the flat monthly income for those years onwards.
 
 Solvency label thresholds (probability solvent at age 90):
 

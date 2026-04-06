@@ -9,6 +9,8 @@ export default function App() {
   const initialPeople = location.state?.people ?? null
   const [step, setStep] = useState(initialPeople ? 3 : 1)
   const [people, setPeople] = useState(initialPeople ?? [])
+  const [capitalEvents, setCapitalEvents] = useState([])
+  const [scenarioLabel, setScenarioLabel] = useState('')
 
   function handlePersonDetailsComplete(collectedPeople) {
     // Preserve accounts/statePension for people whose name is unchanged
@@ -20,8 +22,10 @@ export default function App() {
     setStep(2)
   }
 
-  function handleAssetsComplete(peopleWithAssets) {
-    setPeople(peopleWithAssets)
+  function handleAssetsComplete({ people: updatedPeople, capitalEvents: updatedEvents, label }) {
+    setPeople(updatedPeople)
+    setCapitalEvents(updatedEvents ?? [])
+    setScenarioLabel(label ?? '')
     setStep(3)
   }
 
@@ -38,6 +42,11 @@ export default function App() {
     setStep(3)
   }
 
+  function handleHouseholdLoad({ capitalEvents: loadedEvents, label: loadedLabel }) {
+    setCapitalEvents(loadedEvents ?? [])
+    setScenarioLabel(loadedLabel ?? '')
+  }
+
   if (step === 1) {
     return (
       <PersonDetails
@@ -52,6 +61,8 @@ export default function App() {
     return (
       <Assets
         people={people}
+        capitalEvents={capitalEvents}
+        scenarioLabel={scenarioLabel}
         onComplete={handleAssetsComplete}
         onBack={() => setStep(1)}
       />
@@ -61,9 +72,12 @@ export default function App() {
   return (
     <ScenarioScreen
       people={people}
+      capitalEvents={capitalEvents}
+      scenarioLabel={scenarioLabel}
       onEditDetails={handleEditDetails}
       onEditAccounts={handleEditAccounts}
       onPeopleLoad={handlePeopleLoad}
+      onHouseholdLoad={handleHouseholdLoad}
     />
   )
 }

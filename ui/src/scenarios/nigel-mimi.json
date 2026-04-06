@@ -1,8 +1,11 @@
 {
+  "label": "Base case",
+  "monthlySpendingTarget": 4000,
   "people": [
     {
       "name": "Nigel",
       "currentAge": 52,
+      "retirementAge": 62,
       "incomeStreams": [
         { "label": "BTL rental", "fromYearsFromToday": 0, "toYearsFromToday": 18, "monthlyAmount": 600 }
       ],
@@ -20,6 +23,7 @@
     {
       "name": "Mimi",
       "currentAge": 46,
+      "retirementAge": 56,
       "accounts": [
         { "name": "Scottish Widows", "type": "pension", "currentValue": 40000 },
         { "name": "ISA", "type": "isa", "currentValue": 20000 },
@@ -32,8 +36,6 @@
       ]
     }
   ],
-  "label": "Base case",
-  "monthlySpendingTarget": 4000,
   "spendingSchedule": [
     { "fromYearsFromRetirement": 0, "monthlyAmount": 5000 },
     { "fromYearsFromRetirement": 10, "monthlyAmount": 3000, "label": "Reduced spending after 10 yrs" }

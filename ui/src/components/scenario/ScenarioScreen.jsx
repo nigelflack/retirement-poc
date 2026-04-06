@@ -148,14 +148,14 @@ function validatePeopleFile(data) {
   )
 }
 
-export default function ScenarioScreen({ people, onEditDetails, onEditAccounts, onPeopleLoad }) {
+export default function ScenarioScreen({ people, capitalEvents, scenarioLabel, onEditDetails, onEditAccounts, onPeopleLoad, onHouseholdLoad }) {
   const hasPartner = people.length > 1
   const primary = people[0]
   const partner = people[1] ?? null
 
   // Scenario params
   const defaultRetirementAges = Object.fromEntries(
-    people.map(p => [p.name, Math.min(p.currentAge + 10, 65)])
+    people.map(p => [p.name, typeof p.retirementAge === 'number' ? p.retirementAge : Math.min(p.currentAge + 10, 65)])
   )
   const [retirementAges, setRetirementAges] = useState(defaultRetirementAges)
   const [monthlyIncome, setMonthlyIncome] = useState(3000)
@@ -180,18 +180,9 @@ export default function ScenarioScreen({ people, onEditDetails, onEditAccounts, 
   const [showBreakdown, setShowBreakdown] = useState(false)
   const [showDebug, setShowDebug] = useState(false)
 
-  // Step-change state (per-person contribution steps)
-  const [contribStepOpen, setContribStepOpen] = useState({})      // { personName: bool }
-  const [contribReducesTo, setContribReducesTo] = useState({})    // { personName: number|'' }
-  const [contribLastYears, setContribLastYears] = useState({})    // { personName: number|'' }
-
-  // Step-change state (household income step)
-  const [incomeStepOpen, setIncomeStepOpen] = useState(false)
-  const [incomeReducesTo, setIncomeReducesTo] = useState('')
-  const [incomeAfterYear, setIncomeAfterYear] = useState('')
-
-  // Capital events loaded from file (passthrough)
-  const [loadedCapitalEvents, setLoadedCapitalEvents] = useState(null)
+  // Spending schedule state (full list, replaces step-change)
+  const [spendingSchedule, setSpendingSchedule] = useState([])
+  const [spendingScheduleOpen, setSpendingScheduleOpen] = useState(false)
 
   // Load/save state
   const [loadError, setLoadError] = useState(null)
@@ -206,32 +197,17 @@ export default function ScenarioScreen({ people, onEditDetails, onEditAccounts, 
   // Build the POST /simulate payload
   const buildPayload = useCallback((ages, income) => {
     const payload = {
-      people: people.map(p => {
-        const person = { ...p, retirementAge: ages[p.name] }
-        const reducesTo = contribReducesTo[p.name]
-        const lastYears = contribLastYears[p.name]
-        const yearsToRetirement = ages[p.name] - p.currentAge
-        if (reducesTo !== '' && reducesTo !== undefined && lastYears !== '' && lastYears !== undefined && Number(lastYears) < yearsToRetirement) {
-          const flatMonthly = p.accounts.reduce((s, a) => s + (a.monthlyContribution || 0), 0)
-          person.contributionSchedule = [
-            { fromYearsFromToday: 0, monthlyAmount: flatMonthly },
-            { fromYearsFromToday: yearsToRetirement - Number(lastYears), monthlyAmount: Number(reducesTo) },
-          ]
-        }
-        return person
-      }),
+      people: people.map(p => ({ ...p, retirementAge: ages[p.name] })),
       monthlySpendingTarget: income,
       toAge: 100,
     }
-    if (incomeReducesTo !== '' && incomeAfterYear !== '' && Number(incomeReducesTo) < income) {
-      payload.spendingSchedule = [
-        { fromYearsFromRetirement: 0, monthlyAmount: income },
-        { fromYearsFromRetirement: Number(incomeAfterYear), monthlyAmount: Number(incomeReducesTo) },
-      ]
+    if (spendingSchedule.length > 0) {
+      payload.spendingSchedule = spendingSchedule
     }
-    if (loadedCapitalEvents) payload.capitalEvents = loadedCapitalEvents
+    if (capitalEvents && capitalEvents.length > 0) payload.capitalEvents = capitalEvents
+    if (scenarioLabel) payload.label = scenarioLabel
     return payload
-  }, [people, contribReducesTo, contribLastYears, incomeReducesTo, incomeAfterYear, loadedCapitalEvents])
+  }, [people, spendingSchedule, capitalEvents, scenarioLabel])
 
   const runSimulation = useCallback(async (ages, income, p50) => {
     setIsLoading(true)
@@ -334,31 +310,13 @@ export default function ScenarioScreen({ people, onEditDetails, onEditAccounts, 
 
   // Save / Load handlers
   function handleSave() {
-    const data = { people, monthlySpendingTarget: monthlyIncome }
-    // Include per-person contribution schedules if step filled
-    data.people = people.map(p => {
-      const reducesTo = contribReducesTo[p.name]
-      const lastYears = contribLastYears[p.name]
-      const yearsToRetirement = retirementAges[p.name] - p.currentAge
-      if (reducesTo !== '' && reducesTo !== undefined && lastYears !== '' && lastYears !== undefined && Number(lastYears) < yearsToRetirement) {
-        const flatMonthly = p.accounts.reduce((s, a) => s + (a.monthlyContribution || 0), 0)
-        return {
-          ...p,
-          contributionSchedule: [
-            { fromYearsFromToday: 0, monthlyAmount: flatMonthly },
-            { fromYearsFromToday: yearsToRetirement - Number(lastYears), monthlyAmount: Number(reducesTo) },
-          ],
-        }
-      }
-      return p
-    })
-    if (incomeReducesTo !== '' && incomeAfterYear !== '' && Number(incomeReducesTo) < monthlyIncome) {
-      data.spendingSchedule = [
-        { fromYearsFromRetirement: 0, monthlyAmount: monthlyIncome },
-        { fromYearsFromRetirement: Number(incomeAfterYear), monthlyAmount: Number(incomeReducesTo) },
-      ]
+    const data = {
+      people: people.map(p => ({ ...p, retirementAge: retirementAges[p.name] })),
+      monthlySpendingTarget: monthlyIncome,
     }
-    if (loadedCapitalEvents) data.capitalEvents = loadedCapitalEvents
+    if (scenarioLabel) data.label = scenarioLabel
+    if (spendingSchedule.length > 0) data.spendingSchedule = spendingSchedule
+    if (capitalEvents && capitalEvents.length > 0) data.capitalEvents = capitalEvents
     const filename = people.map(p => p.name.toLowerCase().replace(/\s+/g, '-')).join('-') + '.json'
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
@@ -386,42 +344,31 @@ export default function ScenarioScreen({ people, onEditDetails, onEditAccounts, 
           return
         }
         onPeopleLoad(data.people)
-        // Restore monthly income target from file
+        // Restore retirement ages
+        const loadedAges = Object.fromEntries(
+          data.people.map(p => [
+            p.name,
+            typeof p.retirementAge === 'number' ? p.retirementAge : Math.min(p.currentAge + 10, 65),
+          ])
+        )
+        setRetirementAges(loadedAges)
+        prevRetirementAges.current = loadedAges
+        // Restore spending target
         if (typeof data.monthlySpendingTarget === 'number') {
           setMonthlyIncome(data.monthlySpendingTarget)
         }
-        // Back-fill contribution step state per person
-        const newContribReducesTo = {}
-        const newContribLastYears = {}
-        const newContribStepOpen = {}
-        data.people.forEach(p => {
-          const sched = p.contributionSchedule
-          if (Array.isArray(sched) && sched.length === 2) {
-            const defaultRetAge = Math.min(p.currentAge + 10, 65)
-            const yearsToRetirement = defaultRetAge - p.currentAge
-            const stepEntry = sched[1]
-            newContribReducesTo[p.name] = stepEntry.monthlyAmount
-            const inferredLastYears = yearsToRetirement - stepEntry.fromYearsFromToday
-            newContribLastYears[p.name] = inferredLastYears > 0 ? inferredLastYears : ''
-            newContribStepOpen[p.name] = true
-          }
-        })
-        setContribReducesTo(newContribReducesTo)
-        setContribLastYears(newContribLastYears)
-        setContribStepOpen(newContribStepOpen)
-        // Back-fill income step state
-        const incomeSched = data.spendingSchedule
-        if (Array.isArray(incomeSched) && incomeSched.length === 2) {
-          setIncomeReducesTo(incomeSched[1].monthlyAmount)
-          setIncomeAfterYear(incomeSched[1].fromYearsFromRetirement)
-          setIncomeStepOpen(true)
+        // Restore spending schedule
+        if (Array.isArray(data.spendingSchedule) && data.spendingSchedule.length > 0) {
+          setSpendingSchedule(data.spendingSchedule)
+          setSpendingScheduleOpen(true)
         } else {
-          setIncomeReducesTo('')
-          setIncomeAfterYear('')
-          setIncomeStepOpen(false)
+          setSpendingSchedule([])
         }
-        // Store capital events
-        setLoadedCapitalEvents(data.capitalEvents ?? null)
+        // Restore household fields (capital events, label)
+        onHouseholdLoad({
+          capitalEvents: data.capitalEvents ?? [],
+          label: data.label ?? '',
+        })
       } catch {
         setLoadError('Could not load file — invalid format.')
       }
@@ -640,66 +587,6 @@ export default function ScenarioScreen({ people, onEditDetails, onEditAccounts, 
                   </div>
                 )}
 
-                {/* Contribution step-change disclosure */}
-                <div className="pt-2 space-y-2">
-                  {people.map(p => {
-                    const yearsToRetirement = retirementAges[p.name] - p.currentAge
-                    const isOpen = !!contribStepOpen[p.name]
-                    const reducesTo = contribReducesTo[p.name] ?? ''
-                    const lastYears = contribLastYears[p.name] ?? ''
-                    const warnReducesTo = reducesTo !== '' && Number(reducesTo) >= p.accounts.reduce((s, a) => s + (a.monthlyContribution || 0), 0)
-                    const warnLastYears = lastYears !== '' && Number(lastYears) >= yearsToRetirement
-                    return (
-                      <div key={p.name} className="text-xs">
-                        <button
-                          className="text-primary hover:underline underline-offset-2"
-                          onClick={() => setContribStepOpen(prev => ({ ...prev, [p.name]: !isOpen }))}
-                          disabled={isLoading}
-                        >
-                          {isOpen ? '▲' : '▼'} {hasPartner ? `${p.name}: ` : ''}Add contribution step-change
-                        </button>
-                        {isOpen && (
-                          <div className="mt-2 space-y-2 pl-2 border-l">
-                            <div className="space-y-1">
-                              <label className="text-muted-foreground">Reduces to (£/mo)</label>
-                              <Input
-                                type="number"
-                                min={0}
-                                className="w-28 text-sm"
-                                value={reducesTo}
-                                onChange={e => {
-                                  setContribReducesTo(prev => ({ ...prev, [p.name]: e.target.value }))
-                                  scheduleRun(retirementAges, monthlyIncome)
-                                }}
-                                disabled={isLoading}
-                              />
-                              {warnReducesTo && (
-                                <p className="text-destructive">Must be less than current contributions</p>
-                              )}
-                            </div>
-                            <div className="space-y-1">
-                              <label className="text-muted-foreground">For the last N years before retirement</label>
-                              <Input
-                                type="number"
-                                min={1}
-                                className="w-20 text-sm"
-                                value={lastYears}
-                                onChange={e => {
-                                  setContribLastYears(prev => ({ ...prev, [p.name]: e.target.value }))
-                                  scheduleRun(retirementAges, monthlyIncome)
-                                }}
-                                disabled={isLoading}
-                              />
-                              {warnLastYears && (
-                                <p className="text-destructive">Must be less than years to retirement ({yearsToRetirement})</p>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
               </div>
 
               {/* Divider */}
@@ -735,53 +622,82 @@ export default function ScenarioScreen({ people, onEditDetails, onEditAccounts, 
                   <span className="text-xs text-muted-foreground">per month</span>
                 </div>
 
-                {/* Income step-change disclosure */}
-                <div className="pt-1 text-xs text-center">
+                {/* Spending schedule */}
+                <div className="pt-1 text-xs">
                   <button
                     className="text-primary hover:underline underline-offset-2"
-                    onClick={() => setIncomeStepOpen(v => !v)}
+                    onClick={() => setSpendingScheduleOpen(o => !o)}
                     disabled={isLoading}
                   >
-                    {incomeStepOpen ? '▲' : '▼'} Add income step-change
+                    {spendingScheduleOpen ? '▲' : '▼'} Spending schedule
                   </button>
-                  {incomeStepOpen && (() => {
-                    const warnReducesTo = incomeReducesTo !== '' && Number(incomeReducesTo) >= monthlyIncome
-                    return (
-                      <div className="mt-2 space-y-2 text-left border-l pl-2">
-                        <div className="space-y-1">
-                          <label className="text-muted-foreground">Reduces to (£/mo)</label>
+                  {spendingScheduleOpen && (
+                    <div className="mt-2 space-y-2 text-left">
+                      {spendingSchedule.length > 0 && (
+                        <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-1 text-muted-foreground mb-1">
+                          <span>From year</span>
+                          <span>Monthly (£)</span>
+                          <span>Label</span>
+                          <span />
+                        </div>
+                      )}
+                      {spendingSchedule.map((s, idx) => (
+                        <div key={idx} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-1 items-center">
                           <Input
                             type="number"
                             min={0}
-                            className="w-28 text-sm"
-                            value={incomeReducesTo}
+                            className="text-xs h-7"
+                            placeholder="e.g. 10"
+                            value={s.fromYearsFromRetirement}
                             onChange={e => {
-                              setIncomeReducesTo(e.target.value)
+                              const updated = spendingSchedule.map((x, i) => i === idx ? { ...x, fromYearsFromRetirement: e.target.value } : x)
+                              setSpendingSchedule(updated)
                               scheduleRun(retirementAges, monthlyIncome)
                             }}
                             disabled={isLoading}
                           />
-                          {warnReducesTo && (
-                            <p className="text-destructive">Must be less than income target (£{monthlyIncome}/mo)</p>
-                          )}
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-muted-foreground">After N years in retirement</label>
                           <Input
                             type="number"
-                            min={1}
-                            className="w-20 text-sm"
-                            value={incomeAfterYear}
+                            min={0}
+                            className="text-xs h-7"
+                            placeholder="e.g. 2000"
+                            value={s.monthlyAmount}
                             onChange={e => {
-                              setIncomeAfterYear(e.target.value)
+                              const updated = spendingSchedule.map((x, i) => i === idx ? { ...x, monthlyAmount: e.target.value } : x)
+                              setSpendingSchedule(updated)
                               scheduleRun(retirementAges, monthlyIncome)
                             }}
                             disabled={isLoading}
                           />
+                          <Input
+                            type="text"
+                            className="text-xs h-7"
+                            placeholder="optional"
+                            value={s.label ?? ''}
+                            onChange={e => {
+                              const updated = spendingSchedule.map((x, i) => i === idx ? { ...x, label: e.target.value } : x)
+                              setSpendingSchedule(updated)
+                            }}
+                            disabled={isLoading}
+                          />
+                          <button
+                            className="text-muted-foreground hover:text-destructive px-1"
+                            onClick={() => {
+                              const updated = spendingSchedule.filter((_, i) => i !== idx)
+                              setSpendingSchedule(updated)
+                              scheduleRun(retirementAges, monthlyIncome)
+                            }}
+                            disabled={isLoading}
+                          >✕</button>
                         </div>
-                      </div>
-                    )
-                  })()}
+                      ))}
+                      <button
+                        className="text-primary hover:underline underline-offset-2"
+                        onClick={() => setSpendingSchedule(prev => [...prev, { fromYearsFromRetirement: '', monthlyAmount: '', label: '' }])}
+                        disabled={isLoading}
+                      >+ Add step</button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

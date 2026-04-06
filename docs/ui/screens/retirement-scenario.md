@@ -22,9 +22,8 @@ Bob (50) and Alice (45)    [Edit details]  [Edit accounts]  [Save]  [Load]
 │   └────┘        └────┘           │               ↓                  │
 │     ↓             ↓              │           per month              │
 │                                  │                                  │
-│  ☐  Retire together              │  ▼ Add income step-change        │
-│  ▼ Add contribution step-changes │                                  │
-│                                                                     │
+│  ☐  Retire together              │  ▼ Spending schedule             │
+│                                  │                                  │
 │  Your savings are projected to grow to about £810,000 by            │
 │  the time you retire. (in today's money)                            │
 │                                                                     │
@@ -77,12 +76,13 @@ Bob (50) and Alice (45)    [Edit details]  [Edit accounts]  [Save]  [Load]
 - Warning (inline, step ignored) if £X ≥ that person's current total monthly contributions.
 - Retirement age change: N stays fixed; the step year shifts automatically.
 
-### Income step-change (household, collapsed by default)
-- Disclosure link: "▼ Add income step-change" / "▲ Hide income step-change".
-- Fields: "Reduces to £X/mo" and "after year N of retirement".
-- Both fields must be filled to take effect; if either is blank, no schedule is sent.
-- Warning (inline, step ignored) if £X ≥ main monthly income target.
-- The two step-change sections are independent — either, both, or neither can be open simultaneously.
+### Spending schedule (household, collapsed by default)
+- Disclosure link: "▼ Spending schedule" / "▲ Spending schedule".
+- Full list editor: any number of rows, each with `From (yrs after retirement)`, `Monthly (£)`, optional `Label`.
+- "+ Add step" appends a blank row; ✕ removes.
+- When the list is empty, flat `monthlySpendingTarget` is used for all drawdown years.
+- When populated, the schedule overrides the flat target.
+- No per-person contribution step-change exists on this screen; contributions are edited via "Edit accounts" (Assets screen, Contributions section).
 
 ### Solvency bar
 - Displays `1 − probabilityOfRuin` from the `POST /simulate` response as a filled bar.
@@ -144,5 +144,5 @@ Clicking a card loads its retirement ages and monthly income into Panel 1 and tr
 
 - **[Edit details]** — navigates to Step 1; form repopulates from current state.
 - **[Edit accounts]** — navigates to Step 2; form repopulates from current state.
-- **[Save]** — downloads a JSON file. Filename: `<name1>-<name2>.json`. Includes `monthlyIncomeTarget`, per-person `contributionSchedule` (if step-change filled), household `incomeSchedule` (if filled), `capitalEvents` (if loaded from file, passed through unchanged).
-- **[Load]** — file picker (`<input type="file" accept=".json">`). On success: replaces `people` state; restores `monthlyIncomeTarget`; if a person's `contributionSchedule` has exactly two entries, auto-expands and back-fills that section; same for `incomeSchedule`; stores `capitalEvents` for passthrough. On failure: inline error below the header.
+- **[Save]** — downloads a JSON file. Filename: `<name1>-<name2>.json`. Includes: top-level `label`, `monthlySpendingTarget`, per-person `contributionSchedule` (if non-empty), per-person `incomeStreams` (if non-empty), household `spendingSchedule` (if non-empty), `capitalEvents` (if non-empty).
+- **[Load]** — file picker (`<input type="file" accept=".json">`). On success: replaces `people` state (carries per-person contribution schedules and income streams); restores `monthlySpendingTarget`, `spendingSchedule`, `capitalEvents`, and `label` into ScenarioScreen state. On failure: inline error below the header.
