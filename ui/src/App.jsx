@@ -6,11 +6,14 @@ import ScenarioScreen from '@/components/scenario/ScenarioScreen'
 
 export default function App() {
   const location = useLocation()
-  const initialPeople = location.state?.people ?? null
+  const locationScenario = location.state?.scenario ?? null
+  const initialPeople = locationScenario?.people ?? null
   const [step, setStep] = useState(initialPeople ? 3 : 1)
   const [people, setPeople] = useState(initialPeople ?? [])
-  const [capitalEvents, setCapitalEvents] = useState([])
-  const [scenarioLabel, setScenarioLabel] = useState('')
+  const [capitalEvents, setCapitalEvents] = useState(locationScenario?.capitalEvents ?? [])
+  const [scenarioLabel, setScenarioLabel] = useState(locationScenario?.label ?? '')
+  const [initialMonthlyIncome, setInitialMonthlyIncome] = useState(locationScenario?.monthlySpendingTarget ?? 3000)
+  const [initialSpendingSchedule, setInitialSpendingSchedule] = useState(locationScenario?.spendingSchedule ?? [])
 
   function handlePersonDetailsComplete(collectedPeople) {
     // Preserve accounts/statePension for people whose name is unchanged
@@ -42,9 +45,11 @@ export default function App() {
     setStep(3)
   }
 
-  function handleHouseholdLoad({ capitalEvents: loadedEvents, label: loadedLabel }) {
+  function handleHouseholdLoad({ capitalEvents: loadedEvents, label: loadedLabel, monthlySpendingTarget, spendingSchedule: loadedSchedule }) {
     setCapitalEvents(loadedEvents ?? [])
     setScenarioLabel(loadedLabel ?? '')
+    if (monthlySpendingTarget != null) setInitialMonthlyIncome(monthlySpendingTarget)
+    if (loadedSchedule != null) setInitialSpendingSchedule(loadedSchedule)
   }
 
   if (step === 1) {
@@ -53,6 +58,7 @@ export default function App() {
         initialPeople={people}
         onComplete={handlePersonDetailsComplete}
         onPeopleLoad={handlePeopleLoad}
+        onHouseholdLoad={handleHouseholdLoad}
       />
     )
   }
@@ -74,6 +80,8 @@ export default function App() {
       people={people}
       capitalEvents={capitalEvents}
       scenarioLabel={scenarioLabel}
+      initialMonthlyIncome={initialMonthlyIncome}
+      initialSpendingSchedule={initialSpendingSchedule}
       onEditDetails={handleEditDetails}
       onEditAccounts={handleEditAccounts}
       onPeopleLoad={handlePeopleLoad}

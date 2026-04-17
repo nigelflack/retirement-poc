@@ -13,7 +13,7 @@ export default function ScenariosPage() {
   const navigate = useNavigate()
 
   function handleLoad(scenario) {
-    navigate('/', { state: { people: scenario.data.people } })
+    navigate('/', { state: { scenario: scenario.data } })
   }
 
   return (

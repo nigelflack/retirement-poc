@@ -1,6 +1,6 @@
 # AI Handover
 
-_Last updated: v0.14 complete_
+_Last updated: v0.17 complete_
 
 Read this at the start of a session to get oriented quickly. For what the system does, see `docs/spec.md`. For the next iteration plan, see `docs/iterations/`. For the backlog, see `docs/backlog.md`.
 
@@ -8,33 +8,33 @@ Read this at the start of a session to get oriented quickly. For what the system
 
 ## Current version
 
-**v0.14 (complete)** — Full UI field coverage: all JSON-editable fields now have UI counterparts.
+**v0.17 (complete)** — Simulation engine modularisation and naming.
 
-Key changes from v0.13:
-- **Assets.jsx completely rewritten**: person tabs + Household tab layout. Per-person tabs include collapsible Contributions (multi-step `contributionSchedule`) and Income streams (`incomeStreams`) sections. Household tab includes Scenario label (text input) and Capital events (collapsible list editor). `onComplete` now receives `{ people, capitalEvents, label }` instead of a flat array.
-- **App.jsx**: added `capitalEvents` (array) and `scenarioLabel` (string) state, threaded through to both Assets (for editing) and ScenarioScreen (for simulation + save/load). New `handleHouseholdLoad` callback for load-from-file to restore household fields.
-- **ScenarioScreen.jsx**: contribution step-change UI removed (now handled in Assets). Income step-change replaced with a full **spending schedule** list editor (collapsible, multi-row, `fromYearsFromRetirement` / `monthlyAmount` / `label` columns). `buildPayload` reads contribution/income data directly from `people` objects (embedded by Assets). Payload uses `capitalEvents` and `scenarioLabel` from props.
-- `docs/spec.md` updated: Step 2 now describes full person-tab + Household-tab structure; Panel 1 spending schedule section updated.
-- No server changes. No CLI changes. No test changes required (server tests: 22/22).
+Key changes from v0.16:
 
-**Previous (v0.13)** — Spending rename + per-person income streams + labels.
+- **`server/src/simulation/math.js`**: Renamed `sampleNormal` → `sampleStandardNormal`, `logNormalParams` → `lognormalFromArithmetic`, `percentilesOf5` → `summaryPercentiles` (moved from engine). Added `allPercentiles` (moved from engine), `buildReturnModel(config)`, `sampleInflationFactor(model, year, rng)`, `sampleReturnFactor(model, type, year, rng)`. Removed stale `interpolateSolventAt`.
+- **`server/src/simulation/engine.js`** (was `run.js`): Renamed `runFull` → `simulate`. Accepts optional `rng` parameter (defaults to `sampleStandardNormal`) for deterministic testing. Extracted `runPath` (single simulation path), and named cashflow step functions `applyNetCashflow`, `applyCapitalTransfers`, `applySurplus`, `applyDraw`, `checkRuin`. `summaryPercentiles`/`allPercentiles` now sourced from `math.js`.
+- **`server/src/routes/simulate.js`** (was `routes/run.js`): Updated to import `{ simulate }` from `engine.js`. No logic changes.
+- **`server/src/index.js`**: Updated to mount `routes/simulate.js`.
+- **Tests**: 17/17 pass. 4 new deterministic tests using injectable RNG (in `engine.test.js`, was `run.test.js`).
 
-Key changes from v0.12:
-- **Spending rename (breaking):** `monthlyIncomeTarget` → `monthlySpendingTarget`; `incomeSchedule` → `spendingSchedule`; `annualIncomeTarget` → `annualSpendingTarget` in response. Engine variable `incomeTargetByYear` → `spendingTargetByYear`.
-- **Per-person `incomeStreams`** (optional array on each person): each entry has `fromYearsFromToday`, optional `toYearsFromToday` (exclusive; absent = run to end), `monthlyAmount`, optional `label`. The adapter resolves these to `otherIncomeByYear` (summed across all people) and passes to the engine. The engine offsets the annual draw: `draw = max(0, inflatedSpendingTarget − totalSP − otherIncome)`.
-- **Labels (optional `label` string)** on: top-level scenario, `spendingSchedule[]`, `contributionSchedule[]`, `capitalEvents[]`, `incomeStreams[]`. Display-only; no behavioural effect.
+**Previous (v0.16)** — Full cashflow engine rewrite. Pots model, incomeSchedule, expenseSchedule, capitalEvents, surplusStrategy, drawStrategy. See `docs/iterations/v0-16.md`.
 
 ---
 
 ## What is in progress / next
 
-Nothing in progress. See `docs/backlog.md` for candidate next items.
+Nothing in progress. Candidates:
+- **UI fix**: Wizard and ScenarioScreen still use the old pre-v0.16 API contract. Do not expect the web UI to work.
+- See `docs/backlog.md` for further candidates.
 
 ---
 
 ## Known issues / rough edges
 
-- Solve endpoints (Panel 2) always use the flat model — spending schedule and capital events are not forwarded to `/solve/income` or `/solve/ages`.
+- **UI is broken** — all wizard and scenario screens use the old API format. Do not expect the web UI to work.
+- **Solve endpoints** are 501 stubs. Rebuilding solve requires a new adapter design; deferred.
+- **Bob/Alice scenario** has no salary income, so ruin probability is high. Correct per scenario data.
 
 ---
 
@@ -44,21 +44,15 @@ Nothing in progress. See `docs/backlog.md` for candidate next items.
 # Terminal 1 — server
 cd server && node src/index.js
 
-# Terminal 2 — web UI
-cd ui && npm run dev
-# → http://localhost:5173
+# Terminal 2 — CLI (scenario results only; no prompts)
+cd cli && python3 retirement.py --input ../ui/src/scenarios/nigel-mimi.json
 
-# Terminal 2 (alternative) — CLI
-source .venv/bin/activate
-cd cli && python retirement.py --input ../ui/src/scenarios/nigel-mimi.json
-
-# Solve modes
-python retirement.py --input ../ui/src/scenarios/nigel-mimi.json --solve income
-python retirement.py --input ../ui/src/scenarios/nigel-mimi.json --solve ages
+# JSON mode (raw response)
+python3 retirement.py --input ../ui/src/scenarios/nigel-mimi.json --json
 
 # Debug table (year-by-year)
-python retirement.py --input ../ui/src/scenarios/nigel-mimi.json --debug
+python3 retirement.py --input ../ui/src/scenarios/nigel-mimi.json --debug
 
 # Server tests
-cd server && npm test
+cd server && node --test src/simulation/engine.test.js
 ```

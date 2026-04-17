@@ -221,3 +221,35 @@ Decisions recorded in version order. Each entry explains what was decided and wh
 ### JSON validation at system boundary only (no schema library)
 **Decided:** A short inline `validatePeopleFile` function checks for `people` array, non-empty entries, `name` string, `currentAge` number, and non-empty `accounts` array. No external schema validation library added.
 **Rationale:** The validation is at the file load boundary only. The checks are simple enough that a dedicated library would add more dependency weight than value. Any file that passes this check will produce a working simulation payload.
+
+---
+
+## v0.16
+
+### Year-array engine contract (cashflow model replacing phase-split model)
+**Decided:** The engine (`run.js`) receives a fully-resolved `years[]` array — one item per simulation year — containing `{ income[], expense[], capitalOut[], capitalIn[], surplusOrder[], drawOrder[] }`. The engine has no knowledge of retirement phases, pension rules, or person ages.
+**Rationale:** The previous model split accumulation and drawdown into phases with separate input shapes. This made per-year variation (e.g., BTL rental income stopping, spending step-downs, capital events) impossible to express without adapter logic anyway. A flat year array makes the engine a pure arithmetic operator and concentrates all domain logic in the adapter.
+
+### Multi-pot model with per-type stochastic returns
+**Decided:** Pots have a `type`: `investments` (log-normal μ=7%, σ=12%), `property` (log-normal μ=3%, σ=8%), or `cash` (fixed μ=4%). Each pot's return is sampled independently per simulation year using the per-type parameters from `simulation.json`.
+**Rationale:** A single return rate for all assets conflated fundamentally different risk/return profiles. Property in particular behaves very differently from an equity ISA — separating them allows realistic planning for property-heavy households.
+
+### Property excluded from solvency / liquid total
+**Decided:** Property pots never contribute to the liquid total used for solvency checks. Solvency is `investments + cash ≥ 0`. Property is tracked for net worth but cannot be drawn automatically.
+**Rationale:** Property cannot be partially liquidated on demand. If a household wants to draw on property, they must model an explicit `capitalIn` event (e.g., a sale or equity release). Automatic property-backed solvency would be misleading.
+
+### `surplusOrder` (adaptive) is separate from `capitalOut` (mandatory)
+**Decided:** `capitalOut` items are mandatory transfers that happen regardless of primary pot balance. `surplusOrder` items only execute if `primaryPot > 0` — surplus is routed up to `maxAmount` per entry, stopping when the primary pot reaches zero.
+**Rationale:** Pension contributions are mandatory (employment contract, PAYE); routing accumulated surplus between ISAs is adaptive. Conflating them would either force dry-run contributions or make mandatory transfers contingent on performance.
+
+### Adapter resolves all domain knowledge; engine is pure arithmetic
+**Decided:** Person ages, retirement ages, accessibility windows, state pension timing, and strategy semantics all live in `routes/run.js`. The engine receives a pre-resolved `years[]` array and has no decision logic.
+**Rationale:** Clean separation of concerns. The engine is a pure mathematical operator that is easy to test with synthetic inputs. Future changes to pension rules or strategy semantics require only adapter changes, not engine changes.
+
+### Post-ruin simulation continues for net-worth tracking
+**Decided:** When a simulation path becomes insolvent (liquid total < 0), the path is marked as ruined and liquid pots are floored at zero, but the loop continues to `toAge`.
+**Rationale:** Even after insolvency, property pots and any subsequent income streams continue growing/flowing. Net worth trajectories post-ruin are needed for accurate fan chart data and for any future withdrawal-rate recovery analysis.
+
+### Solve endpoints stubbed 501 (deferred to future iteration)
+**Decided:** `POST /solve/income` and `POST /solve/ages` return `501 Not Implemented` in v0.16.
+**Rationale:** The solve endpoints were implemented against the old phase-split model. Rebuilding them against the new cashflow adapter requires careful design of what "solve for income" means when income is modelled per-year with schedules. This work is deferred until the v0.16 adapter is stable and in use.

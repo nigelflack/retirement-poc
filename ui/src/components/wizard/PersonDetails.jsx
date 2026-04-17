@@ -14,7 +14,7 @@ function validatePeopleFile(data) {
   )
 }
 
-export default function PersonDetails({ onComplete, initialPeople = [], onPeopleLoad }) {
+export default function PersonDetails({ onComplete, initialPeople = [], onPeopleLoad, onHouseholdLoad }) {
   const [name, setName] = useState(initialPeople[0]?.name ?? '')
   const [age, setAge] = useState(initialPeople[0]?.currentAge?.toString() ?? '')
   const [includePartner, setIncludePartner] = useState(initialPeople.length > 1)
@@ -73,6 +73,14 @@ export default function PersonDetails({ onComplete, initialPeople = [], onPeople
           return
         }
         onPeopleLoad(data.people)
+        if (onHouseholdLoad) {
+          onHouseholdLoad({
+            capitalEvents: data.capitalEvents ?? [],
+            label: data.label ?? '',
+            monthlySpendingTarget: data.monthlySpendingTarget,
+            spendingSchedule: data.spendingSchedule ?? [],
+          })
+        }
       } catch {
         setLoadError('Could not load file — invalid format.')
       }

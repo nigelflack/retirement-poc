@@ -1,46 +1,46 @@
 {
-  "label": "Base case",
-  "monthlySpendingTarget": 4000,
+  "label": "Nigel and Mimi — base case",
+  "pots": [
+    { "id": "pension_nigel", "type": "investments", "owner": "nigel", "accessFromAge": 57, "initialValue": 330000 },
+    { "id": "pension_mimi",  "type": "investments", "owner": "mimi",  "accessFromAge": 57, "initialValue": 40000  },
+    { "id": "isa_nigel",     "type": "investments", "owner": "nigel", "accessFromAge": 0,  "initialValue": 61000  },
+    { "id": "isa_mimi",      "type": "investments", "owner": "mimi",  "accessFromAge": 0,  "initialValue": 50000  },
+    { "id": "cash_nigel",      "type": "investments", "owner": "nigel",  "accessFromAge": 0,  "initialValue": 1000  }
+  ],
+  "primaryPot": "cash_nigel",
   "people": [
     {
+      "id": "nigel",
       "name": "Nigel",
       "currentAge": 52,
       "retirementAge": 62,
-      "incomeStreams": [
-        { "label": "BTL rental", "fromYearsFromToday": 0, "toYearsFromToday": 18, "monthlyAmount": 600 }
-      ],
-      "accounts": [
-        { "name": "Standard Life", "type": "pension", "currentValue": 140000 },
-        { "name": "Vanguard SIPP", "type": "pension", "currentValue": 190000 },
-        { "name": "Vanguard ISA", "type": "isa", "currentValue": 61000 }
-      ],
-      "statePension": { "fromAge": 67, "annualAmount": 12000 },
-      "contributionSchedule": [
-        { "fromYearsFromToday": 0, "monthlyAmount": 4000 },
-        { "fromYearsFromToday": 5, "monthlyAmount": 2000 }
-      ]
+      "statePension": { "annualAmount": 12000, "fromAge": 67 }
     },
     {
+      "id": "mimi",
       "name": "Mimi",
       "currentAge": 46,
       "retirementAge": 56,
-      "accounts": [
-        { "name": "Scottish Widows", "type": "pension", "currentValue": 40000 },
-        { "name": "ISA", "type": "isa", "currentValue": 20000 },
-        { "name": "Shares", "type": "isa", "currentValue": 30000}
-      ],
-      "statePension": { "fromAge": 67, "annualAmount": 10000 },
-      "contributionSchedule": [
-        { "fromYearsFromToday": 0, "monthlyAmount": 100 },
-        { "fromYearsFromToday": 5, "monthlyAmount": 50 }
-      ]
+      "statePension": { "annualAmount": 10000, "fromAge": 67 }
     }
   ],
-  "spendingSchedule": [
-    { "fromYearsFromRetirement": 0, "monthlyAmount": 5000 },
-    { "fromYearsFromRetirement": 10, "monthlyAmount": 3000, "label": "Reduced spending after 10 yrs" }
+  "incomeSchedule": [
+    { "id": "btl_rental", "annualAmount": 7200, "fromYear": 0, "toYear": 18 },
+    { "id": "nigel_salary", "annualAmount": 110000, "fromYear": 0, "toYear": 10 },
+    { "id": "nigel_bonus", "annualAmount": 40000, "fromYear": 0, "toYear": 10 }
+  ],
+  "expenseSchedule": [
+    { "id": "core_spending",  "annualAmount": 60000, "fromYear": 0 },
+    { "id": "reduced_later", "annualAmount": 48000, "fromYear": 20 }
   ],
   "capitalEvents": [
-    { "yearsFromToday": 18, "amount": 200000, "label": "Tequila Wharf Sale" }
-  ]
+    { "id": "tequila_wharf_sale", "year": 18, "amount": 200000 }
+  ],
+  "surplusStrategy": [
+    { "potId": "pension_nigel", "annualCap": 48000 },
+    { "potId": "pension_mimi",  "annualCap": 1200  },
+    { "potId": "isa_mimi",      "annualCap": 20000 }
+  ],
+  "drawStrategy": [ "isa_nigel", "isa_mimi", "pension_nigel", "pension_mimi" ],
+  "toAge": 100
 }

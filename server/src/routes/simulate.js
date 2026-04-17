@@ -1,173 +1,213 @@
 const express = require('express');
 const router = express.Router();
-const { runFull } = require('../simulation/run');
+const { simulate } = require('../simulation/engine');
 const simulationConfig = require('../../config/simulation.json');
 
 /**
- * Resolves sparse schedule inputs into dense per-year arrays for the engine.
+ * Adapter: resolves the high-level POST /simulate request body into the
+ * year-array format required by the engine, then runs the simulation.
  *
- * Called once per request before runFull. The engine only ever sees flat arrays.
- *
- * @param {object} input - validated request body
- * @param {number} totalYears - total simulation years (accumulation + drawdown)
- * @param {number} householdRetirementYear - year index when household retires
- * @param {number[]} retirementYears - per-person retirement year indices (same order as people)
- * @returns {{ contributionByYear: number[][], spendingTargetByYear: number[], capitalEventsByYear: number[], otherIncomeByYear: number[] }}
+ * High-level request fields:
+ *   pots[]            — { id, type, owner?, accessFromAge, initialValue }
+ *   primaryPot        — pot id receiving net cashflow each year
+ *   people[]          — { id, name, currentAge, retirementAge, statePension? }
+ *   incomeSchedule[]  — { id, annualAmount, fromYear, toYear? }
+ *   expenseSchedule[] — { id, annualAmount, fromYear, toYear? }
+ *   capitalEvents[]   — { id, year, amount, toPot? }
+ *   surplusStrategy[] — { potId, annualCap }
+ *   drawStrategy[]    — [potId, ...]  (ordered draw priority)
+ *   toAge             — simulation horizon age (default 100)
+ *   debug             — if true, include resolvedYears in response
  */
-function resolveSchedules(input, totalYears, householdRetirementYear, retirementYears) {
-  const { people, monthlySpendingTarget, spendingSchedule, capitalEvents } = input;
-  const annualSpendingTarget = monthlySpendingTarget * 12;
-
-  // --- contributionByYear: one array per person ---
-  const contributionByYear = people.map((person, pi) => {
-    const yearlyContribution = new Array(totalYears).fill(0);
-    const schedule = person.contributionSchedule;
-    const personRetirementYear = retirementYears[pi];
-
-    if (schedule && schedule.length > 0) {
-      // Sort schedule ascending by fromYearsFromToday
-      const sorted = schedule.slice().sort((a, b) => a.fromYearsFromToday - b.fromYearsFromToday);
-      let si = sorted.length - 1; // start from last step
-      for (let y = 0; y < personRetirementYear; y++) {
-        // Find the applicable step: the last one with fromYearsFromToday <= y
-        while (si > 0 && sorted[si].fromYearsFromToday > y) si--;
-        // find the correct segment
-        let amount = 0;
-        for (let k = sorted.length - 1; k >= 0; k--) {
-          if (sorted[k].fromYearsFromToday <= y) {
-            amount = sorted[k].monthlyAmount * 12;
-            break;
-          }
-        }
-        yearlyContribution[y] = amount;
-      }
-      // years from personRetirementYear onward remain 0
-    } else {
-      // Default: flat contribution from accounts until this person retires
-      const flat = person.accounts.reduce((s, a) => s + (a.monthlyContribution || 0), 0) * 12;
-      for (let y = 0; y < personRetirementYear; y++) {
-        yearlyContribution[y] = flat;
-      }
-    }
-
-    return yearlyContribution;
-  });
-
-  // --- spendingTargetByYear: household level ---
-  const spendingTargetByYear = new Array(totalYears).fill(0);
-  const schedule = spendingSchedule && spendingSchedule.length > 0 ? spendingSchedule : null;
-
-  for (let y = householdRetirementYear; y < totalYears; y++) {
-    if (schedule) {
-      // Find the last step with fromYearsFromRetirement <= (y - householdRetirementYear)
-      const yearsIntoRetirement = y - householdRetirementYear;
-      let amount = 0;
-      for (let k = schedule.length - 1; k >= 0; k--) {
-        if (schedule[k].fromYearsFromRetirement <= yearsIntoRetirement) {
-          amount = schedule[k].monthlyAmount * 12;
-          break;
-        }
-      }
-      spendingTargetByYear[y] = amount;
-    } else {
-      spendingTargetByYear[y] = annualSpendingTarget;
-    }
-  }
-
-  // --- capitalEventsByYear: household level ---
-  const capitalEventsByYear = new Array(totalYears).fill(0);
-  if (capitalEvents) {
-    for (const event of capitalEvents) {
-      if (event.yearsFromToday >= 0 && event.yearsFromToday < totalYears) {
-        capitalEventsByYear[event.yearsFromToday] += event.amount;
-      }
-    }
-  }
-
-  // --- otherIncomeByYear: sum of all per-person income streams ---
-  const otherIncomeByYear = new Array(totalYears).fill(0);
-  for (const person of people) {
-    if (!Array.isArray(person.incomeStreams)) continue;
-    for (const stream of person.incomeStreams) {
-      const from = stream.fromYearsFromToday ?? 0;
-      const to = stream.toYearsFromToday ?? totalYears;
-      const annual = stream.monthlyAmount * 12;
-      for (let y = from; y < Math.min(to, totalYears); y++) {
-        otherIncomeByYear[y] += annual;
-      }
-    }
-  }
-
-  return { contributionByYear, spendingTargetByYear, capitalEventsByYear, otherIncomeByYear };
-}
-
-function validatePeople(people) {
-  if (!Array.isArray(people) || people.length === 0) {
-    return 'people must be a non-empty array';
-  }
-  for (const person of people) {
-    if (!person.name || person.currentAge == null || person.retirementAge == null || !Array.isArray(person.accounts)) {
-      return 'Each person must have name, currentAge, retirementAge, and accounts array';
-    }
-    if (typeof person.currentAge !== 'number' || typeof person.retirementAge !== 'number') {
-      return 'currentAge and retirementAge must be numbers';
-    }
-    if (person.retirementAge <= person.currentAge) {
-      return `retirementAge must be greater than currentAge for ${person.name}`;
-    }
-  }
-  return null;
-}
-
 router.post('/', (req, res) => {
   const {
+    pots,
+    primaryPot,
     people,
-    monthlySpendingTarget,
-    spendingSchedule,
-    capitalEvents,
+    incomeSchedule = [],
+    expenseSchedule = [],
+    capitalEvents = [],
+    surplusStrategy = [],
+    drawStrategy = [],
     toAge = 100,
     debug = false,
   } = req.body;
 
-  const peopleErr = validatePeople(people);
-  if (peopleErr) return res.status(400).json({ error: peopleErr });
-
-  if (typeof monthlySpendingTarget !== 'number' || monthlySpendingTarget <= 0) {
-    return res.status(400).json({ error: 'monthlySpendingTarget must be a positive number' });
+  // --- Validation ---
+  if (!Array.isArray(pots) || pots.length === 0) {
+    return res.status(400).json({ error: 'pots must be a non-empty array' });
+  }
+  for (const pot of pots) {
+    if (!pot.id || !pot.type || pot.initialValue == null) {
+      return res.status(400).json({ error: 'Each pot must have id, type, and initialValue' });
+    }
+    if (!['investments', 'property', 'cash'].includes(pot.type)) {
+      return res.status(400).json({ error: `Unknown pot type '${pot.type}'` });
+    }
+  }
+  if (!primaryPot || !pots.find(p => p.id === primaryPot)) {
+    return res.status(400).json({ error: 'primaryPot must reference a valid pot id' });
+  }
+  if (!Array.isArray(people) || people.length === 0) {
+    return res.status(400).json({ error: 'people must be a non-empty array' });
+  }
+  for (const person of people) {
+    if (!person.id || !person.name || person.currentAge == null || person.retirementAge == null) {
+      return res.status(400).json({ error: 'Each person must have id, name, currentAge, retirementAge' });
+    }
+    if (person.retirementAge <= person.currentAge) {
+      return res.status(400).json({ error: `retirementAge must be > currentAge for ${person.name}` });
+    }
   }
   if (typeof toAge !== 'number' || toAge <= 0) {
     return res.status(400).json({ error: 'toAge must be a positive number' });
   }
 
-  // Compute totalYears and retirement year indices (mirrors engine logic)
+  // --- Derive simulation horizon ---
+  // Use the oldest person's currentAge as the reference; toAge is their age.
+  // retirementYear = earliest (fewest years to retire).
   const earliest = people.reduce((best, p) =>
     (p.retirementAge - p.currentAge) < (best.retirementAge - best.currentAge) ? p : best
   );
-  const householdRetirementYear = earliest.retirementAge - earliest.currentAge;
-  const drawdownYears = toAge - earliest.retirementAge;
-  const totalYears = householdRetirementYear + drawdownYears;
+  const retirementYear = earliest.retirementAge - earliest.currentAge;
+  const totalYears = toAge - earliest.currentAge;
 
-  const retirementYears = people.map(p => p.retirementAge - p.currentAge);
-
-  const resolved = resolveSchedules(
-    { people, monthlySpendingTarget, spendingSchedule, capitalEvents },
-    totalYears,
-    householdRetirementYear,
-    retirementYears,
-  );
-
-  const results = runFull({ people, toAge, ...resolved }, simulationConfig);
-
-  if (debug) {
-    results.resolvedSchedules = {
-      contributionByYear: resolved.contributionByYear,
-      spendingTargetByYear: resolved.spendingTargetByYear,
-      capitalEventsByYear: resolved.capitalEventsByYear,
-      otherIncomeByYear: resolved.otherIncomeByYear,
-    };
+  if (totalYears <= 0) {
+    return res.status(400).json({ error: 'toAge must be greater than the oldest person\'s currentAge' });
   }
 
-  res.json(results);
+  // Build pot-id → accessFromYear lookup (0 if no owner or accessFromAge=0).
+  const potAccessYear = {};
+  for (const pot of pots) {
+    if (pot.accessFromAge == null || pot.accessFromAge === 0) {
+      potAccessYear[pot.id] = 0;
+    } else if (pot.owner) {
+      const owner = people.find(p => p.id === pot.owner);
+      potAccessYear[pot.id] = owner ? Math.max(0, pot.accessFromAge - owner.currentAge) : 0;
+    } else {
+      potAccessYear[pot.id] = 0;
+    }
+  }
+
+  // Build retirement year per person (for surplus strategy exclusion).
+  const personRetirementYear = {};
+  for (const p of people) {
+    personRetirementYear[p.id] = p.retirementAge - p.currentAge;
+  }
+
+  // Owner lookup for each pot.
+  const potOwner = {};
+  for (const pot of pots) {
+    if (pot.owner) potOwner[pot.id] = pot.owner;
+  }
+
+  // --- Synthesise state pension income schedule entries ---
+  // State pensions are injected as incomeSchedule items by the adapter.
+  const syntheticIncome = [...incomeSchedule];
+  for (const person of people) {
+    if (person.statePension) {
+      const { annualAmount, fromAge } = person.statePension;
+      const fromYear = fromAge - person.currentAge;
+      syntheticIncome.push({
+        id: `sp_${person.id}`,
+        annualAmount,
+        fromYear,
+      });
+    }
+  }
+
+  // --- Build year array ---
+  const years = Array.from({ length: totalYears }, (_, y) => {
+    // Income items active this year.
+    const income = syntheticIncome
+      .filter(item => y >= item.fromYear && (item.toYear == null || y < item.toYear))
+      .map(item => ({ id: item.id, amount: item.annualAmount }));
+
+    // Expense items active this year.
+    const expense = expenseSchedule
+      .filter(item => y >= item.fromYear && (item.toYear == null || y < item.toYear))
+      .map(item => ({ id: item.id, amount: item.annualAmount }));
+
+    // Capital events this year.
+    const thisYearEvents = capitalEvents.filter(e => e.year === y);
+    const capitalOut = thisYearEvents
+      .filter(e => e.toPot && e.toPot !== primaryPot)
+      .map(e => ({ id: e.id, toPot: e.toPot, amount: Math.abs(e.amount) }));
+    // Capital events with no toPot (or toPot = primaryPot) land as income.
+    for (const e of thisYearEvents) {
+      if (!e.toPot || e.toPot === primaryPot) {
+        if (e.amount > 0)  income.push({ id: e.id, amount:  e.amount });
+        if (e.amount < 0) expense.push({ id: e.id, amount: -e.amount });
+      }
+    }
+
+    // Surplus order: only include pot if its owner has not yet retired and pot is not property.
+    const surplusOrder = surplusStrategy
+      .filter(entry => {
+        const pot = pots.find(p => p.id === entry.potId);
+        if (!pot || pot.type === 'property') return false;
+        // Exclude pension-type pots once their owner retires.
+        const owner = potOwner[entry.potId];
+        if (owner && y >= personRetirementYear[owner]) return false;
+        return true;
+      })
+      .map(entry => ({ potId: entry.potId, maxAmount: entry.annualCap }));
+
+    // Draw order: only include pot if accessible this year and not property.
+    const drawOrder = drawStrategy.filter(potId => {
+      const pot = pots.find(p => p.id === potId);
+      if (!pot || pot.type === 'property') return false;
+      return y >= (potAccessYear[potId] || 0);
+    });
+
+    return {
+      income,
+      expense,
+      capitalOut,
+      capitalIn: [],
+      surplusOrder,
+      drawOrder,
+    };
+  });
+
+  // --- Run engine ---
+  const engineInput = { pots, primaryPot, retirementYear, years };
+  const engineResult = simulate(engineInput, simulationConfig);
+
+  // --- Decorate response with adapter-level metadata ---
+  const refPerson = earliest;
+  const statePensions = people
+    .filter(p => p.statePension)
+    .map(p => ({ name: p.name, annualAmount: p.statePension.annualAmount, fromAge: p.statePension.fromAge }));
+
+  const response = {
+    numSimulations:          engineResult.numSimulations,
+    householdRetirementAge:  earliest.retirementAge,
+    householdRetirementName: earliest.name,
+    retirementYear:          retirementYear,
+    accumulationSnapshot:    engineResult.accumulationSnapshot,
+    statePensions,
+    probabilityOfRuin:       engineResult.probabilityOfRuin,
+    survivalTable:           engineResult.survivalTable.map(e => ({
+      age: refPerson.currentAge + e.yearIndex + 1,
+      yearIndex: e.yearIndex,
+      probabilitySolvent: e.probabilitySolvent,
+    })),
+    portfolioPercentiles: {
+      byAge: engineResult.portfolioPercentiles.byYear.map(e => ({
+        age: refPerson.currentAge + e.yearIndex + 1,
+        yearIndex: e.yearIndex,
+        nominal: e.nominal,
+        real: e.real,
+      })),
+    },
+  };
+
+  if (debug) {
+    response.resolvedYears = years;
+  }
+
+  res.json(response);
 });
 
 module.exports = router;

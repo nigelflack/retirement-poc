@@ -89,13 +89,7 @@ Solvency label thresholds (probability solvent at age 90):
 | 85–95% | Money is likely to last into your 90s |
 | > 95% | Money is very likely to last well into your 90s |
 
-**Show detailed breakdown** — a collapsible toggle below the solvency bar. Collapsed by default; state persists across re-runs. Expands to three sections:
-
-1. **How likely is your money to last?** — vertical bar chart at 5-year intervals (subset of `survivalTable`), y-axis 0–100%, percentage below each bar.
-2. **What you might have when you retire (in today's money)** — horizontal percentile range track (p10–p90 extent, p25–p75 highlighted band, p50 tick) from `accumulationSnapshot.real`.
-3. **State pension** — per-person name, annual amount, and from-age. Omitted if no person has a state pension.
-
-**Show debug table** — a second collapsible toggle on the same row, right-aligned. Independent of the breakdown toggle. Expands to a scrollable year-by-year table (sticky header, ~12 rows visible) with columns: Year, per-person age, Phase (A/D, retirement year annotated `← retire`), per-person state pension (from `fromAge` onward; `—` before), and real p10/p50/p90 portfolio values from `portfolioPercentiles.byAge[n].real`.
+**View detailed breakdown** — a text link that appears below the solvency bar once a result is available. Navigates to `/detail` (the detail viewer screen), passing the full simulation result and scenario context via router state.
 
 ### Panel 2 — Other options you could consider
 
@@ -111,6 +105,22 @@ Shows skeleton placeholders while solve calls are in flight. Shows "Not availabl
 ### Panel 3 — Some options that might work for you
 
 2–3 scenario cards derived from Panel 2 results. Each card shows retirement ages, monthly income, and "to age 90+" label. The current-plan card is highlighted in buckets 3 & 4. Cards are clickable — clicking a card loads its retirement ages and monthly income into Panel 1 and triggers a new run.
+
+### Detail viewer (`/detail`)
+
+Full-detail breakdown of a simulation result. Reached from the scenario screen via `[View detailed breakdown →]`. Reads all data from React Router location state; shows a fallback if accessed directly without state.
+
+**Header**: household name, ages, retirement ages, monthly spending, solvency at 90 percentage. Back link navigates to the previous page.
+
+All simulation requests include `debug: true`, so responses contain `resolvedSchedules` (the four pre-resolved dense arrays used by the engine).
+
+**Three tabs:**
+
+1. **Year by year** — scrollable table. Columns: calendar year, per-person age, phase (A/D, ← retire at transition), total contributions (£/yr), income streams (£/yr), spending target (£/yr), capital event (coloured, signed; only if events present), per-person state pension (from `fromAge` onward), real p10/p50/p90 portfolio. Data sourced from `resolvedSchedules` + `portfolioPercentiles.byAge`.
+
+2. **Fan chart** — Recharts `ComposedChart`. x = age, y = real portfolio value (today's money). Layers: p10–p90 outer band (light fill), p25–p75 inner band (medium fill), p50 median line. Vertical reference line at `householdRetirementAge`.
+
+3. **Spending sources** — Recharts `BarChart` (stacked), drawdown years only. Monthly £ in today's money. Bars: portfolio draw, state pension, income streams. Line overlay: spending target. Capital events annotated as dashed vertical reference lines.
 
 ### `/scenarios` page
 

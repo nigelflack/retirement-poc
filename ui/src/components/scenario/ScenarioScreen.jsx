@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -29,14 +30,6 @@ function solvencyLabel(probabilitySolventAt90) {
   if (probabilitySolventAt90 <= 0.95)
     return "At these settings, money is likely to last into your 90s."
   return "At these settings, your money is very likely to last well into your 90s."
-}
-
-// --- Format large currency values as abbreviated strings for the breakdown track ---
-function fmtSnapK(n) {
-  if (n == null) return '\u2014'
-  if (n >= 1_000_000) return `\u00a3${(n / 1_000_000).toFixed(1)}m`
-  if (n >= 1_000) return `\u00a3${Math.round(n / 1_000)}k`
-  return `\u00a3${Math.round(n)}`
 }
 
 // --- Age spinner ---
@@ -148,7 +141,7 @@ function validatePeopleFile(data) {
   )
 }
 
-export default function ScenarioScreen({ people, capitalEvents, scenarioLabel, onEditDetails, onEditAccounts, onPeopleLoad, onHouseholdLoad }) {
+export default function ScenarioScreen({ people, capitalEvents, scenarioLabel, initialMonthlyIncome = 3000, initialSpendingSchedule = [], onEditDetails, onEditAccounts, onPeopleLoad, onHouseholdLoad }) {
   const hasPartner = people.length > 1
   const primary = people[0]
   const partner = people[1] ?? null
@@ -158,13 +151,13 @@ export default function ScenarioScreen({ people, capitalEvents, scenarioLabel, o
     people.map(p => [p.name, typeof p.retirementAge === 'number' ? p.retirementAge : Math.min(p.currentAge + 10, 65)])
   )
   const [retirementAges, setRetirementAges] = useState(defaultRetirementAges)
-  const [monthlyIncome, setMonthlyIncome] = useState(3000)
+  const [monthlyIncome, setMonthlyIncome] = useState(initialMonthlyIncome)
   const [retireTogether, setRetireTogether] = useState(false)
 
   // Simulation state
   const [lastResult, setLastResult] = useState(null)
   const [lastRunAges, setLastRunAges] = useState(defaultRetirementAges)
-  const [lastRunIncome, setLastRunIncome] = useState(3000)
+  const [lastRunIncome, setLastRunIncome] = useState(initialMonthlyIncome)
   const [lastP50, setLastP50] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -176,13 +169,9 @@ export default function ScenarioScreen({ people, capitalEvents, scenarioLabel, o
   const [p2Right, setP2Right] = useState(null)
   const [p3Mid, setP3Mid] = useState(null)          // extra solve/income for low-bucket middle card
 
-  // Breakdown / debug panel toggle state (persists across re-runs)
-  const [showBreakdown, setShowBreakdown] = useState(false)
-  const [showDebug, setShowDebug] = useState(false)
-
   // Spending schedule state (full list, replaces step-change)
-  const [spendingSchedule, setSpendingSchedule] = useState([])
-  const [spendingScheduleOpen, setSpendingScheduleOpen] = useState(false)
+  const [spendingSchedule, setSpendingSchedule] = useState(initialSpendingSchedule)
+  const [spendingScheduleOpen, setSpendingScheduleOpen] = useState(initialSpendingSchedule.length > 0)
 
   // Load/save state
   const [loadError, setLoadError] = useState(null)
@@ -190,7 +179,7 @@ export default function ScenarioScreen({ people, capitalEvents, scenarioLabel, o
 
   // Previous values to revert to on error
   const prevRetirementAges = useRef(defaultRetirementAges)
-  const prevMonthlyIncome = useRef(3000)
+  const prevMonthlyIncome = useRef(initialMonthlyIncome)
   const debounceTimer = useRef(null)
   const p2RunIdRef = useRef(0)
 
@@ -200,6 +189,7 @@ export default function ScenarioScreen({ people, capitalEvents, scenarioLabel, o
       people: people.map(p => ({ ...p, retirementAge: ages[p.name] })),
       monthlySpendingTarget: income,
       toAge: 100,
+      debug: true,
     }
     if (spendingSchedule.length > 0) {
       payload.spendingSchedule = spendingSchedule
@@ -474,23 +464,7 @@ export default function ScenarioScreen({ people, capitalEvents, scenarioLabel, o
   const survivalAt90 = interpolateSolventAt(lastResult?.survivalTable, 90)
   const medianPot = lastResult?.accumulationSnapshot?.real?.p50 ?? null
 
-  // Breakdown derived values
-  const survivalDisplayRows = lastResult
-    ? lastResult.survivalTable.filter(row => (row.age - lastResult.householdRetirementAge) % 5 === 0)
-    : []
-  const snap = lastResult?.accumulationSnapshot?.real ?? null
-  const snapRange = snap ? snap.p90 - snap.p10 : 0
-  const snapTrackPct = (val) => {
-    if (!snap || snapRange <= 0) return '0%'
-    return `${((val - snap.p10) / snapRange * 100).toFixed(1)}%`
-  }
-
-  // Debug table derived values
-  const debugRefPerson = lastResult
-    ? (people.find(p => p.name === lastResult.householdRetirementName) ?? people[0])
-    : null
-  const currentYear = new Date().getFullYear()
-  const peopleWithSP = people.filter(p => p.statePension)
+  const navigate = useNavigate()
 
   const headerName = hasPartner
     ? `${primary.name} (${primary.currentAge}) and ${partner.name} (${partner.currentAge})`
@@ -731,185 +705,19 @@ export default function ScenarioScreen({ people, capitalEvents, scenarioLabel, o
                   {solvencyLabel(survivalAt90)}
                 </p>
               )}
-              {/* Toggle row */}
-              <div className="flex items-center justify-between pt-1">
-                <button
-                  className="text-xs text-primary hover:underline underline-offset-2"
-                  onClick={() => setShowBreakdown(v => !v)}
-                >
-                  {showBreakdown ? '\u25b2 Hide detailed breakdown' : '\u25bc Show detailed breakdown'}
-                </button>
-                <button
-                  className="text-xs text-primary hover:underline underline-offset-2"
-                  onClick={() => setShowDebug(v => !v)}
-                >
-                  {showDebug ? '\u25b2 Hide debug table' : 'Show debug table \u25bc'}
-                </button>
-              </div>
-            </div>
-
-            {/* Breakdown section */}
-            {showBreakdown && lastResult && (
-              <div className="border-t pt-4 space-y-6">
-
-                {/* Section 1: Survival by age bar chart */}
-                <div className="space-y-1">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                    How likely is your money to last?
-                  </p>
-                  <div className="flex gap-2 h-16 items-end">
-                    {survivalDisplayRows.map(row => {
-                      const barHeightPx = Math.max(Math.round(row.probabilitySolvent * 48), 2)
-                      return (
-                        <div key={row.age} className="flex-1 flex flex-col items-center gap-1">
-                          <span className="text-[10px] leading-none text-muted-foreground">
-                            {Math.round(row.probabilitySolvent * 100)}%
-                          </span>
-                          <div
-                            className="w-full rounded-t-sm bg-primary"
-                            style={{ height: `${barHeightPx}px` }}
-                          />
-                        </div>
-                      )
+              {lastResult && (
+                <div className="pt-1 text-center">
+                  <button
+                    className="text-xs text-primary hover:underline underline-offset-2"
+                    onClick={() => navigate('/detail', {
+                      state: { result: lastResult, people, capitalEvents, retirementAges, monthlyIncome },
                     })}
-                  </div>
-                  <div className="flex gap-2">
-                    {survivalDisplayRows.map(row => (
-                      <div key={row.age} className="flex-1 text-center text-[10px] text-muted-foreground">
-                        {row.age}
-                      </div>
-                    ))}
-                  </div>
+                  >
+                    View detailed breakdown →
+                  </button>
                 </div>
-
-                {/* Section 2: Percentile range at retirement */}
-                {snap && (
-                  <div className="space-y-2">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                      What you might have when you retire
-                    </p>
-                    <p className="text-xs text-muted-foreground">in today&apos;s money</p>
-                    <div className="relative h-2 bg-muted rounded-full">
-                      <div
-                        className="absolute h-full bg-primary/40 rounded-full"
-                        style={{
-                          left: snapTrackPct(snap.p25),
-                          width: `${snapRange > 0 ? ((snap.p75 - snap.p25) / snapRange * 100).toFixed(1) : 0}%`,
-                        }}
-                      />
-                      <div
-                        className="absolute w-0.5 h-full bg-primary"
-                        style={{ left: snapTrackPct(snap.p50) }}
-                      />
-                    </div>
-                    <div className="relative h-10">
-                      {[
-                        { val: snap.p10, label: 'p10' },
-                        { val: snap.p25, label: 'p25' },
-                        { val: snap.p50, label: 'p50' },
-                        { val: snap.p75, label: 'p75' },
-                        { val: snap.p90, label: 'p90' },
-                      ].map(({ val, label }) => (
-                        <div
-                          key={label}
-                          className="absolute text-center"
-                          style={{ left: snapTrackPct(val), transform: 'translateX(-50%)' }}
-                        >
-                          <p className="text-[10px] font-medium whitespace-nowrap">{fmtSnapK(val)}</p>
-                          <p className="text-[10px] text-muted-foreground">{label}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Section 3: State pension */}
-                {lastResult.statePensions?.length > 0 && (
-                  <div className="space-y-1">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                      State pension
-                    </p>
-                    {lastResult.statePensions.map(sp => (
-                      <p key={sp.name} className="text-sm">
-                        <span className="font-medium">{sp.name}</span>{' '}
-                        <span className="text-muted-foreground">
-                          {formatCurrency(sp.annualAmount / 12)}/mo (£{sp.annualAmount.toLocaleString()}/yr) from age {sp.fromAge}
-                        </span>
-                      </p>
-                    ))}
-                  </div>
-                )}
-
-              </div>
-            )}
-
-            {/* Debug section */}
-            {showDebug && lastResult && debugRefPerson && (
-              <div className="border-t pt-4 space-y-3">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                  Debug — POST /simulate response
-                </p>
-                <p className="text-xs text-muted-foreground font-mono">
-                  numSimulations: {lastResult.numSimulations} &middot;{' '}
-                  probabilityOfRuin: {lastResult.probabilityOfRuin} &middot;{' '}
-                  householdRetirementAge: {lastResult.householdRetirementAge} ({lastResult.householdRetirementName}) &middot;{' '}
-                  effectiveRate: {lastResult.withdrawalRate}
-                </p>
-                <div className="overflow-auto max-h-64 rounded border text-xs font-mono">
-                  <table className="w-full border-collapse min-w-max">
-                    <thead className="sticky top-0 bg-background border-b">
-                      <tr className="text-left text-muted-foreground">
-                        <th className="px-2 py-1 font-medium">Year</th>
-                        {people.map(p => (
-                          <th key={p.name} className="px-2 py-1 font-medium">{p.name}</th>
-                        ))}
-                        <th className="px-2 py-1 font-medium">Phase</th>
-                        {peopleWithSP.map(p => (
-                          <th key={p.name} className="px-2 py-1 font-medium">{p.name} SP</th>
-                        ))}
-                        <th className="px-2 py-1 font-medium">p10 (real)</th>
-                        <th className="px-2 py-1 font-medium">p50 (real)</th>
-                        <th className="px-2 py-1 font-medium">p90 (real)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {lastResult.portfolioPercentiles.byAge.map(entry => {
-                        const isRetire = entry.age === lastResult.householdRetirementAge + 1
-                        const phase = entry.age <= lastResult.householdRetirementAge ? 'A' : 'D'
-                        const calYear = currentYear + (entry.age - debugRefPerson.currentAge)
-                        return (
-                          <tr
-                            key={entry.age}
-                            className={cn('border-b last:border-0', isRetire && 'bg-primary/5 font-semibold')}
-                          >
-                            <td className="px-2 py-0.5">{calYear}</td>
-                            {people.map(p => (
-                              <td key={p.name} className="px-2 py-0.5">
-                                {p.currentAge + (entry.age - debugRefPerson.currentAge)}
-                              </td>
-                            ))}
-                            <td className="px-2 py-0.5">{phase}{isRetire ? ' \u2190' : ''}</td>
-                            {peopleWithSP.map(p => {
-                              const personAge = p.currentAge + (entry.age - debugRefPerson.currentAge)
-                              return (
-                                <td key={p.name} className="px-2 py-0.5">
-                                  {personAge >= p.statePension.fromAge
-                                    ? `\u00a3${p.statePension.annualAmount.toLocaleString()}/yr`
-                                    : '\u2014'}
-                                </td>
-                              )
-                            })}
-                            <td className="px-2 py-0.5">£{entry.real[9].toLocaleString()}</td>
-                            <td className="px-2 py-0.5">£{entry.real[49].toLocaleString()}</td>
-                            <td className="px-2 py-0.5">£{entry.real[89].toLocaleString()}</td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
+              )}
+            </div>
 
             {/* Error state */}
             {error && (
