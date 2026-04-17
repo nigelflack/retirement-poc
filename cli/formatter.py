@@ -2,10 +2,6 @@ def format_run(results: dict) -> str:
     retirement_age = results["householdRetirementAge"]
     retirement_name = results["householdRetirementName"]
     snap = results["accumulationSnapshot"]
-    rate_pct = results["withdrawalRate"] * 100
-    median_income = results["annualIncomeMedian"]
-    p10_income = results["annualIncomeP10"]
-    p90_income = results["annualIncomeP90"]
     ruin_pct = results["probabilityOfRuin"] * 100
     state_pensions = results.get("statePensions", [])
     real_col = "Real (today's £)"
@@ -25,14 +21,8 @@ def format_run(results: dict) -> str:
             f"  {label:<8} £{snap['nominal'][key]:>15,.0f}  £{snap['real'][key]:>15,.0f}"
         )
 
-    lines += [
-        "",
-        f"  Effective rate         : {rate_pct:.1f}%",
-        f"  Annual income          : £{median_income:,.0f} median  "
-        f"(£{p10_income:,.0f} – £{p90_income:,.0f} range)  (today's £)",
-    ]
-
     if state_pensions:
+        lines.append("")
         lines.append("  State pensions         :")
         for sp in state_pensions:
             lines.append(
@@ -44,7 +34,6 @@ def format_run(results: dict) -> str:
         f"  {'Age':<6} {'Probability solvent':>20}",
         f"  {'─' * 28}",
     ]
-    retirement_age = results["householdRetirementAge"]
     display_table = [
         row for row in results["survivalTable"]
         if (row["age"] - retirement_age) % 5 == 0
@@ -55,71 +44,55 @@ def format_run(results: dict) -> str:
         bar = "█" * bar_len
         lines.append(f"  {row['age']:<6} {pct:>6.1f}%  {bar}")
 
-    lines += [
-        "",
-        f"  Probability of running out before age "
-        f"{display_table[-1]['age']}: {ruin_pct:.1f}%",
-    ]
+    if display_table:
+        lines += [
+            "",
+            f"  Probability of running out before age "
+            f"{display_table[-1]['age']}: {ruin_pct:.1f}%",
+        ]
     return "\n".join(lines)
 
 
 def format_debug(results: dict) -> str:
-    """Prints a full year-by-year table from resolvedSchedules + portfolioPercentiles."""
-    schedules = results.get("resolvedSchedules", {})
-    contribution_by_year = schedules.get("contributionByYear", [])  # list of per-person lists
-    income_target_by_year = schedules.get("incomeTargetByYear", [])
-    capital_events_by_year = schedules.get("capitalEventsByYear", [])
+    """Prints a year-by-year table from resolvedYears + portfolioPercentiles."""
+    resolved_years = results.get("resolvedYears", [])
     by_age = results.get("portfolioPercentiles", {}).get("byAge", [])
-
     retirement_age = results["householdRetirementAge"]
-    people = results.get("statePensions", [])  # used only for count
+    ref_person_age = by_age[0]["age"] - 1 if by_age else 0
 
-    col_w = 12
+    col_w = 14
     header = (
         f"  {'Year':<5} {'Age':<5} {'Phase':<10}"
-        f" {'Contribution':>{col_w}} {'Income target':>{col_w}} {'Capital event':>{col_w}}"
+        f" {'Income':>{col_w}} {'Expense':>{col_w}}"
         f" {'p10 real':>{col_w}} {'p50 real':>{col_w}} {'p90 real':>{col_w}}"
     )
     sep = "  " + "─" * (len(header) - 2)
 
     lines = ["", "  Year-by-year debug table", sep, header, sep]
 
-    # Build lookup: age → real percentiles
     perc_lookup = {entry["age"]: entry["real"] for entry in by_age}
 
-    num_years = max(len(income_target_by_year), len(by_age))
-    # Determine reference currentAge from first byAge entry
-    ref_start_age = by_age[0]["age"] - 1 if by_age else 0
-
-    for y in range(num_years):
-        age = ref_start_age + y + 1
+    for y, yr in enumerate(resolved_years):
+        age = ref_person_age + y + 1
         phase = "D" if age > retirement_age else "A"
         phase_label = f"{phase}  ← retire" if age == retirement_age + 1 else phase
 
-        # Household contribution = sum across persons
-        if contribution_by_year and y < len(contribution_by_year[0]):
-            total_contrib = sum(person_arr[y] for person_arr in contribution_by_year)
-            contrib_str = f"£{total_contrib:,.0f}" if total_contrib else "—"
-        else:
-            contrib_str = "—"
-
-        income = income_target_by_year[y] if y < len(income_target_by_year) else 0
-        income_str = f"£{income:,.0f}" if income else "—"
-
-        cap = capital_events_by_year[y] if y < len(capital_events_by_year) else 0
-        cap_str = f"£{cap:+,.0f}" if cap else "—"
+        income_total = sum(item["amount"] for item in yr.get("income", []))
+        expense_total = sum(item["amount"] for item in yr.get("expense", []))
+        income_str = f"£{income_total:,.0f}" if income_total else "—"
+        expense_str = f"£{expense_total:,.0f}" if expense_total else "—"
 
         real = perc_lookup.get(age)
         if real:
-            p10_str = f"£{real[9]:,.0f}"   # index 9 = p10
-            p50_str = f"£{real[49]:,.0f}"  # index 49 = p50
-            p90_str = f"£{real[89]:,.0f}"  # index 89 = p90
+            p10_str = f"£{real[9]:,.0f}"
+            p50_str = f"£{real[49]:,.0f}"
+            p90_str = f"£{real[89]:,.0f}"
         else:
             p10_str = p50_str = p90_str = "—"
 
         lines.append(
             f"  {y:<5} {age:<5} {phase_label:<10}"
-            f" {contrib_str:>{col_w}} {income_str:>{col_w}} {cap_str:>{col_w}}"
+            f" {income_str:>{col_w}} {expense_str:>{col_w}}"
             f" {p10_str:>{col_w}} {p50_str:>{col_w}} {p90_str:>{col_w}}"
         )
 
