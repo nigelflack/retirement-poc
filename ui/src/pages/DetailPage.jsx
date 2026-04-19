@@ -1,382 +1,111 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
-  ComposedChart, AreaChart, Area, Bar, BarChart, Line, XAxis, YAxis,
-  CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer, Legend,
+  ResponsiveContainer,
+  ComposedChart,
+  Area,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ReferenceLine,
 } from 'recharts'
 import { cn } from '@/lib/utils'
 
-// --- Helpers ---
+function fmtMoney(value) {
+  const num = Number(value || 0)
+  return `£${Math.round(num).toLocaleString()}`
+}
 
-function fmtK(n) {
-  if (n == null || isNaN(n)) return '—'
+function fmtSignedMoney(value) {
+  const num = Number(value || 0)
+  const sign = num > 0 ? '+' : ''
+  return `${sign}${fmtMoney(num)}`
+}
+
+function fmtAxis(value) {
+  const n = Number(value || 0)
   if (Math.abs(n) >= 1_000_000) return `£${(n / 1_000_000).toFixed(1)}m`
   if (Math.abs(n) >= 1_000) return `£${Math.round(n / 1_000)}k`
   return `£${Math.round(n)}`
 }
 
-function fmtMoney(n) {
-  if (n == null || n === 0) return '—'
-  return `£${Math.round(n).toLocaleString()}`
+function sumAmounts(items) {
+  return (items ?? []).reduce((sum, item) => sum + (item.amount ?? 0), 0)
 }
 
-function fmtMoneySign(n) {
-  if (!n || n === 0) return '—'
-  const prefix = n > 0 ? '+' : ''
-  return `${prefix}£${Math.round(n).toLocaleString()}`
-}
-
-const TABS = ['Year by year', 'Fan chart', 'Spending sources']
-
-// --- Tab 1: Year-by-year table ---
-
-function YearByYearTab({ result, people, capitalEvents }) {
-  const refPerson = people.find(p => p.name === result.householdRetirementName) ?? people[0]
-  const rs = result.resolvedSchedules
-  const currentYear = new Date().getFullYear()
-  const hasCapEvents = capitalEvents && capitalEvents.length > 0
-  const peopleWithSP = people.filter(p => p.statePension)
-
-  return (
-    <div className="overflow-auto rounded border text-xs font-mono">
-      <table className="w-full border-collapse min-w-max">
-        <thead className="sticky top-0 bg-background border-b z-10">
-          <tr className="text-left text-muted-foreground">
-            <th className="px-2 py-1.5 font-medium">Cal. year</th>
-            {people.map(p => (
-              <th key={p.name} className="px-2 py-1.5 font-medium">{p.name}</th>
-            ))}
-            <th className="px-2 py-1.5 font-medium">Phase</th>
-            <th className="px-2 py-1.5 font-medium text-right">Contrib (£/yr)</th>
-            <th className="px-2 py-1.5 font-medium text-right">Inc. streams (£/yr)</th>
-            <th className="px-2 py-1.5 font-medium text-right">Spend target (£/yr)</th>
-            {hasCapEvents && <th className="px-2 py-1.5 font-medium text-right">Cap. event</th>}
-            {peopleWithSP.map(p => (
-              <th key={p.name} className="px-2 py-1.5 font-medium text-right">{p.name} SP</th>
-            ))}
-            <th className="px-2 py-1.5 font-medium text-right">p10 (real)</th>
-            <th className="px-2 py-1.5 font-medium text-right">p50 (real)</th>
-            <th className="px-2 py-1.5 font-medium text-right">p90 (real)</th>
-          </tr>
-        </thead>
-        <tbody>
-          {result.portfolioPercentiles.byAge.map((entry, rowIdx) => {
-            const yearOffset = entry.age - refPerson.currentAge        // 1-based age offset
-            const y = yearOffset - 1                                   // 0-based year index
-            const isRetire = entry.age === result.householdRetirementAge + 1
-            const phase = entry.age <= result.householdRetirementAge ? 'A' : 'D'
-            const calYear = currentYear + yearOffset
-
-            const totalContrib = rs
-              ? rs.contributionByYear.reduce((s, personArr) => s + (personArr[y] ?? 0), 0)
-              : 0
-            const incomeStreams = rs ? (rs.otherIncomeByYear[y] ?? 0) : 0
-            const spendTarget = rs ? (rs.spendingTargetByYear[y] ?? 0) : 0
-            const capEventSum = rs ? (rs.capitalEventsByYear[y] ?? 0) : 0
-
-            return (
-              <tr
-                key={entry.age}
-                className={cn(
-                  'border-b last:border-0',
-                  isRetire && 'bg-primary/5 font-semibold',
-                  rowIdx % 2 === 0 && !isRetire && 'bg-muted/20',
-                )}
-              >
-                <td className="px-2 py-0.5">{calYear}</td>
-                {people.map(p => (
-                  <td key={p.name} className="px-2 py-0.5">
-                    {p.currentAge + yearOffset}
-                  </td>
-                ))}
-                <td className="px-2 py-0.5">{phase}{isRetire ? ' ←' : ''}</td>
-                <td className="px-2 py-0.5 text-right">
-                  {totalContrib > 0 ? `£${Math.round(totalContrib).toLocaleString()}` : '—'}
-                </td>
-                <td className="px-2 py-0.5 text-right">
-                  {incomeStreams > 0 ? `£${Math.round(incomeStreams).toLocaleString()}` : '—'}
-                </td>
-                <td className="px-2 py-0.5 text-right">
-                  {spendTarget > 0 ? `£${Math.round(spendTarget).toLocaleString()}` : '—'}
-                </td>
-                {hasCapEvents && (
-                  <td className={cn(
-                    'px-2 py-0.5 text-right font-semibold',
-                    capEventSum > 0 && 'text-green-700 dark:text-green-400',
-                    capEventSum < 0 && 'text-destructive',
-                  )}>
-                    {fmtMoneySign(capEventSum)}
-                  </td>
-                )}
-                {peopleWithSP.map(p => {
-                  const personAge = p.currentAge + yearOffset
-                  return (
-                    <td key={p.name} className="px-2 py-0.5 text-right">
-                      {personAge >= p.statePension.fromAge
-                        ? `£${p.statePension.annualAmount.toLocaleString()}/yr`
-                        : '—'}
-                    </td>
-                  )
-                })}
-                <td className="px-2 py-0.5 text-right">£{entry.real[9].toLocaleString()}</td>
-                <td className="px-2 py-0.5 text-right">£{entry.real[49].toLocaleString()}</td>
-                <td className="px-2 py-0.5 text-right">£{entry.real[89].toLocaleString()}</td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-// --- Tab 2: Fan chart ---
-
-function FanChartTab({ result, people }) {
-  const refPerson = people.find(p => p.name === result.householdRetirementName) ?? people[0]
-
-  const chartData = result.portfolioPercentiles.byAge.map(entry => ({
-    age: entry.age,
-    p10: entry.real[9],
-    p90: entry.real[98],
-    p25: entry.real[24],
-    p75: entry.real[74],
-    p50: entry.real[49],
-    // For range bands: [low, high] pairs
-    outerBand: [entry.real[9], entry.real[98]],
-    innerBand: [entry.real[24], entry.real[74]],
-  }))
-
-  const retireAge = result.householdRetirementAge
-
-  // Custom tooltip
-  function CustomTooltip({ active, payload, label }) {
-    if (!active || !payload || payload.length === 0) return null
-    const d = chartData.find(r => r.age === label)
-    if (!d) return null
-    return (
-      <div className="rounded border bg-background p-2 text-xs shadow space-y-0.5">
-        <p className="font-semibold">Age {label}</p>
-        <p className="text-muted-foreground">p10: {fmtK(d.p10)}</p>
-        <p className="text-muted-foreground">p25: {fmtK(d.p25)}</p>
-        <p className="font-medium">p50: {fmtK(d.p50)}</p>
-        <p className="text-muted-foreground">p75: {fmtK(d.p75)}</p>
-        <p className="text-muted-foreground">p90: {fmtK(d.p90)}</p>
-      </div>
-    )
-  }
-
+function DetailList({ title, items }) {
   return (
     <div className="space-y-2">
-      <p className="text-xs text-muted-foreground">Portfolio value in today&apos;s money (real). Shaded bands show p10–p90 and p25–p75. Line is median (p50).</p>
-      <ResponsiveContainer width="100%" height={380}>
-        <ComposedChart data={chartData} margin={{ top: 8, right: 16, bottom: 8, left: 16 }}>
-          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-          <XAxis
-            dataKey="age"
-            tick={{ fontSize: 10 }}
-            tickFormatter={v => v}
-            label={{ value: 'Age', position: 'insideBottomRight', offset: -4, fontSize: 10 }}
-          />
-          <YAxis
-            tick={{ fontSize: 10 }}
-            tickFormatter={fmtK}
-            width={55}
-          />
-          <Tooltip content={<CustomTooltip />} />
-          <ReferenceLine
-            x={retireAge}
-            stroke="hsl(var(--primary))"
-            strokeDasharray="4 2"
-            label={{ value: 'Retire', position: 'top', fontSize: 10 }}
-          />
-          {/* p10–p90 outer band: draw p90 fill down to p10 */}
-          <Area
-            type="monotone"
-            dataKey="p90"
-            stroke="none"
-            fill="hsl(var(--primary))"
-            fillOpacity={0.10}
-            legendType="none"
-            activeDot={false}
-          />
-          <Area
-            type="monotone"
-            dataKey="p10"
-            stroke="none"
-            fill="hsl(var(--background))"
-            fillOpacity={1}
-            legendType="none"
-            activeDot={false}
-          />
-          {/* p25–p75 inner band */}
-          <Area
-            type="monotone"
-            dataKey="p75"
-            stroke="none"
-            fill="hsl(var(--primary))"
-            fillOpacity={0.20}
-            legendType="none"
-            activeDot={false}
-          />
-          <Area
-            type="monotone"
-            dataKey="p25"
-            stroke="none"
-            fill="hsl(var(--background))"
-            fillOpacity={1}
-            legendType="none"
-            activeDot={false}
-          />
-          {/* p50 median line */}
-          <Line
-            type="monotone"
-            dataKey="p50"
-            stroke="hsl(var(--primary))"
-            strokeWidth={2}
-            dot={false}
-            name="Median (p50)"
-          />
-        </ComposedChart>
-      </ResponsiveContainer>
-      <div className="flex items-center gap-4 text-xs text-muted-foreground justify-center">
-        <span className="flex items-center gap-1">
-          <span className="inline-block w-6 h-2 rounded" style={{ background: 'hsl(var(--primary))', opacity: 0.1 }} />
-          p10–p90
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="inline-block w-6 h-2 rounded" style={{ background: 'hsl(var(--primary))', opacity: 0.3 }} />
-          p25–p75
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="inline-block w-6 h-1 rounded" style={{ background: 'hsl(var(--primary))' }} />
-          Median
-        </span>
-      </div>
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
+      {items.length === 0 ? (
+        <p className="text-sm text-muted-foreground">None</p>
+      ) : (
+        <ul className="space-y-1">
+          {items.map((item, idx) => (
+            <li key={`${item.id || 'item'}-${idx}`} className="flex items-center justify-between gap-4 text-sm">
+              <span className="text-muted-foreground truncate">{item.id || 'unnamed'}</span>
+              <span className="font-medium shrink-0">{fmtMoney(item.amount ?? 0)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
 
-// --- Tab 3: Spending sources ---
+function buildYearRows(result, people) {
+  const refPerson = people.find(p => p.name === result.householdRetirementName) ?? people[0]
+  const byAge = result?.portfolioPercentiles?.byAge ?? []
+  const resolvedYears = Array.isArray(result?.resolvedYears) ? result.resolvedYears : []
+  const startYear = new Date().getFullYear()
 
-function SpendingSourcesTab({ result, people, capitalEvents }) {
-  const rs = result.resolvedSchedules
-  if (!rs) return <p className="text-sm text-muted-foreground">No resolved schedules available.</p>
-
-  const retireYear = result.householdRetirementAge - (people.find(p => p.name === result.householdRetirementName) ?? people[0]).currentAge
-  const totalYears = rs.spendingTargetByYear.length
-
-  // Build per-drawdown-year data
-  const chartData = []
-  for (let y = retireYear; y < totalYears; y++) {
-    const age = result.householdRetirementAge + (y - retireYear)
-    const spendTarget = rs.spendingTargetByYear[y] / 12       // monthly
-
-    // State pension: sum active ones for this year
-    const refPerson = people.find(p => p.name === result.householdRetirementName) ?? people[0]
-    let statePensionMonthly = 0
-    for (const p of people) {
-      if (!p.statePension) continue
-      const personAge = p.currentAge + y
-      if (personAge >= p.statePension.fromAge) {
-        statePensionMonthly += p.statePension.annualAmount / 12
-      }
+  return byAge.map(entry => {
+    const yearOffset = entry.age - refPerson.currentAge
+    const yearIndex = yearOffset - 1
+    const yearData = resolvedYears[yearIndex] ?? {
+      income: [],
+      expense: [],
+      capitalIn: [],
+      capitalOut: [],
     }
 
-    const incomeStreamsMonthly = (rs.otherIncomeByYear[y] ?? 0) / 12
-    const portfolioDraw = Math.max(0, spendTarget - statePensionMonthly - incomeStreamsMonthly)
-    const capEvent = rs.capitalEventsByYear[y] ?? 0
+    const incomeItems = yearData.income ?? []
+    const expenseItems = yearData.expense ?? []
+    const capitalInItems = yearData.capitalIn ?? []
+    const capitalOutItems = yearData.capitalOut ?? []
 
-    chartData.push({
-      age,
-      portfolioDraw: Math.round(portfolioDraw),
-      statePension: Math.round(statePensionMonthly),
-      incomeStreams: Math.round(incomeStreamsMonthly),
-      spendTarget: Math.round(spendTarget),
-      capEvent: capEvent !== 0 ? capEvent : null,
-    })
-  }
+    const incomeTotal = sumAmounts(incomeItems)
+    const expenseTotal = sumAmounts(expenseItems)
+    const capitalInTotal = sumAmounts(capitalInItems)
+    const capitalOutTotal = sumAmounts(capitalOutItems)
+    const netCashflow = incomeTotal - expenseTotal + capitalInTotal - capitalOutTotal
 
-  // Capital event reference lines (one per unique year with a non-zero event)
-  const capEventLines = capitalEvents
-    ? capitalEvents
-        .filter(e => {
-          const y = e.yearsFromToday
-          return y >= retireYear && y < totalYears
-        })
-        .map(e => ({
-          age: result.householdRetirementAge + (e.yearsFromToday - retireYear),
-          label: e.label ? `${e.label} (${e.amount > 0 ? '+' : ''}£${Math.abs(e.amount).toLocaleString()})` : (e.amount > 0 ? '+' : '') + `£${Math.abs(e.amount).toLocaleString()}`,
-        }))
-    : []
-
-  function CustomTooltip({ active, payload, label }) {
-    if (!active || !payload || payload.length === 0) return null
-    const d = chartData.find(r => r.age === label)
-    if (!d) return null
-    return (
-      <div className="rounded border bg-background p-2 text-xs shadow space-y-0.5">
-        <p className="font-semibold">Age {label}</p>
-        <p>Portfolio draw: {fmtMoney(d.portfolioDraw)}/mo</p>
-        {d.statePension > 0 && <p>State pension: {fmtMoney(d.statePension)}/mo</p>}
-        {d.incomeStreams > 0 && <p>Income streams: {fmtMoney(d.incomeStreams)}/mo</p>}
-        <p className="font-medium border-t pt-0.5 mt-0.5">Target: {fmtMoney(d.spendTarget)}/mo</p>
-      </div>
-    )
-  }
-
-  return (
-    <div className="space-y-2">
-      <p className="text-xs text-muted-foreground">Monthly spending in today&apos;s money — how each year&apos;s target is met. Dashed line shows the spending target.</p>
-      <ResponsiveContainer width="100%" height={380}>
-        <BarChart data={chartData} margin={{ top: 8, right: 16, bottom: 8, left: 16 }}>
-          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-          <XAxis
-            dataKey="age"
-            tick={{ fontSize: 10 }}
-            label={{ value: 'Age', position: 'insideBottomRight', offset: -4, fontSize: 10 }}
-          />
-          <YAxis
-            tick={{ fontSize: 10 }}
-            tickFormatter={v => `£${(v / 1000).toFixed(0)}k`}
-            width={50}
-          />
-          <Tooltip content={<CustomTooltip />} />
-          <Legend wrapperStyle={{ fontSize: 10 }} />
-          {capEventLines.map(ev => (
-            <ReferenceLine
-              key={ev.age}
-              x={ev.age}
-              stroke="hsl(var(--muted-foreground))"
-              strokeDasharray="3 3"
-              label={{ value: ev.label, position: 'top', fontSize: 9, angle: -45, offset: 6 }}
-            />
-          ))}
-          {/* Spending target line */}
-          <Line
-            type="stepAfter"
-            dataKey="spendTarget"
-            stroke="hsl(var(--foreground))"
-            strokeWidth={1.5}
-            strokeDasharray="4 2"
-            dot={false}
-            name="Spending target"
-          />
-          <Bar dataKey="incomeStreams" stackId="a" fill="hsl(142 71% 45%)" name="Income streams" />
-          <Bar dataKey="statePension" stackId="a" fill="hsl(217 91% 60%)" name="State pension" />
-          <Bar dataKey="portfolioDraw" stackId="a" fill="hsl(var(--primary))" name="Portfolio draw" />
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
-  )
+    return {
+      age: entry.age,
+      yearOffset,
+      calYear: startYear + yearOffset,
+      yearIndex,
+      incomeItems,
+      expenseItems,
+      capitalInItems,
+      capitalOutItems,
+      incomeTotal,
+      expenseTotal,
+      capitalInTotal,
+      capitalOutTotal,
+      netCashflow,
+      p10: entry.real?.[9] ?? 0,
+      p50: entry.real?.[49] ?? 0,
+      p90: entry.real?.[89] ?? 0,
+    }
+  })
 }
-
-// --- Main page ---
 
 export default function DetailPage() {
   const location = useLocation()
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState(0)
 
   const state = location.state
   if (!state?.result || !state?.people) {
@@ -386,16 +115,16 @@ export default function DetailPage() {
           <p className="text-sm text-muted-foreground">No scenario loaded.</p>
           <button
             className="text-sm text-primary hover:underline underline-offset-2"
-            onClick={() => navigate('/')}
+            onClick={() => navigate('/scenarios')}
           >
-            ← Go back and run a scenario first
+            ← Go to scenario loader
           </button>
         </div>
       </div>
     )
   }
 
-  const { result, people, capitalEvents, retirementAges, monthlyIncome } = state
+  const { result, people, retirementAges, monthlyIncome } = state
   const primary = people[0]
   const partner = people[1] ?? null
 
@@ -407,15 +136,66 @@ export default function DetailPage() {
     .map(p => `${p.name} retires ${retirementAges?.[p.name] ?? p.retirementAge}`)
     .join(', ')
 
-  const solvencyPct = result
-    ? Math.round((1 - result.probabilityOfRuin) * 100)
-    : null
+  const rows = useMemo(() => buildYearRows(result, people), [result, people])
+  const [selectedIndex, setSelectedIndex] = useState(0)
+
+  useEffect(() => {
+    setSelectedIndex(0)
+  }, [rows.length])
+
+  if (rows.length === 0) {
+    return (
+      <div className="min-h-screen bg-background px-4 py-8">
+        <div className="w-full max-w-4xl mx-auto space-y-4">
+          <button
+            className="text-sm text-primary hover:underline underline-offset-2"
+            onClick={() => navigate(-1)}
+          >
+            ← Back to scenario
+          </button>
+          <p className="text-sm text-muted-foreground">Detailed year data is unavailable for this result.</p>
+        </div>
+      </div>
+    )
+  }
+
+  const selected = rows[Math.max(0, Math.min(selectedIndex, rows.length - 1))]
+  const chartData = rows.map(row => ({
+    age: row.age,
+    p10: row.p10,
+    p50: row.p50,
+    p90: row.p90,
+  }))
+
+  // Extract net-worth split for selected year
+  const selectedNetWorth = useMemo(() => {
+    if (!result?.netWorthPercentiles?.byAge) return null
+    const entry = result.netWorthPercentiles.byAge[selectedIndex]
+    if (!entry) return null
+    return {
+      liquidP50: entry.liquid?.real?.[49] ?? 0,
+      nonLiquidP50: entry.nonLiquid?.real?.[49] ?? 0,
+      totalP50: entry.total?.real?.[49] ?? 0,
+    }
+  }, [result, selectedIndex])
+
+  function PercentileTooltip({ active, payload, label }) {
+    if (!active || !payload || payload.length === 0) return null
+    const row = rows.find(r => r.age === label)
+    if (!row) return null
+    return (
+      <div className="rounded border bg-background p-2 text-xs shadow space-y-0.5">
+        <p className="font-semibold">{row.calYear} (age {row.age})</p>
+        <p className="text-muted-foreground">p10: {fmtMoney(row.p10)}</p>
+        <p className="font-medium">p50: {fmtMoney(row.p50)}</p>
+        <p className="text-muted-foreground">p90: {fmtMoney(row.p90)}</p>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-background px-4 py-8">
       <div className="w-full max-w-5xl mx-auto space-y-6">
-
-        {/* Back link */}
         <button
           className="text-sm text-primary hover:underline underline-offset-2"
           onClick={() => navigate(-1)}
@@ -423,48 +203,121 @@ export default function DetailPage() {
           ← Back to scenario
         </button>
 
-        {/* Header */}
         <div className="space-y-1">
           <h1 className="text-xl font-semibold">{headerName}</h1>
           <p className="text-sm text-muted-foreground">
             {retirementAgesStr} · £{monthlyIncome?.toLocaleString()}/mo spending
-            {solvencyPct != null && ` · ${solvencyPct}% likely solvent at 90`}
           </p>
         </div>
 
-        {/* Tab bar */}
-        <div className="border-b">
-          <div className="flex gap-0">
-            {TABS.map((tab, idx) => (
-              <button
-                key={tab}
-                className={cn(
-                  'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
-                  idx === activeTab
-                    ? 'border-primary text-foreground'
-                    : 'border-transparent text-muted-foreground hover:text-foreground',
-                )}
-                onClick={() => setActiveTab(idx)}
-              >
-                {tab}
-              </button>
-            ))}
+        <div className="space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Year rail</p>
+          <div className="overflow-x-auto">
+            <div className="flex min-w-max gap-2 pb-1">
+              {rows.map((row, idx) => (
+                <button
+                  key={`${row.calYear}-${row.age}`}
+                  className={cn(
+                    'px-2.5 py-1 rounded-md border text-xs transition-colors',
+                    idx === selectedIndex
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-background text-foreground border-border hover:border-primary/60',
+                  )}
+                  onClick={() => setSelectedIndex(idx)}
+                >
+                  {row.calYear}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
-        {/* Tab content */}
-        <div>
-          {activeTab === 0 && (
-            <YearByYearTab result={result} people={people} capitalEvents={capitalEvents} />
-          )}
-          {activeTab === 1 && (
-            <FanChartTab result={result} people={people} />
-          )}
-          {activeTab === 2 && (
-            <SpendingSourcesTab result={result} people={people} capitalEvents={capitalEvents} />
-          )}
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Percentile strip (real)</p>
+          <ResponsiveContainer width="100%" height={120}>
+            <ComposedChart data={chartData} margin={{ top: 8, right: 10, bottom: 8, left: 10 }}>
+              <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+              <XAxis dataKey="age" tick={{ fontSize: 10 }} />
+              <YAxis tick={{ fontSize: 10 }} tickFormatter={fmtAxis} width={54} />
+              <Tooltip content={<PercentileTooltip />} />
+              <Area type="monotone" dataKey="p90" stroke="none" fill="hsl(var(--primary))" fillOpacity={0.12} />
+              <Area type="monotone" dataKey="p10" stroke="none" fill="hsl(var(--background))" fillOpacity={1} />
+              <Line type="monotone" dataKey="p50" stroke="hsl(var(--primary))" strokeWidth={1.8} dot={false} />
+              <ReferenceLine x={selected.age} stroke="hsl(var(--foreground))" strokeDasharray="4 2" />
+            </ComposedChart>
+          </ResponsiveContainer>
         </div>
 
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Net-worth split (p50, real)</p>
+          {selectedNetWorth ? (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+              <div className="rounded border p-3">
+                <p className="text-xs text-muted-foreground">Liquid assets</p>
+                <p className="font-semibold">{fmtMoney(selectedNetWorth.liquidP50)}</p>
+              </div>
+              <div className="rounded border p-3">
+                <p className="text-xs text-muted-foreground">Non-liquid (property)</p>
+                <p className="font-semibold">{fmtMoney(selectedNetWorth.nonLiquidP50)}</p>
+              </div>
+              <div className="rounded border p-3 bg-muted/50">
+                <p className="text-xs text-muted-foreground">Total net-worth</p>
+                <p className="font-semibold">{fmtMoney(selectedNetWorth.totalP50)}</p>
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="rounded-lg border p-4 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-base font-semibold">
+              Year {selected.calYear} (age {selected.age})
+            </h2>
+            <div className="text-sm text-muted-foreground">
+              Net cashflow: <span className="font-semibold text-foreground">{fmtSignedMoney(selected.netCashflow)}</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <DetailList title="Income" items={selected.incomeItems} />
+            <DetailList title="Expenses" items={selected.expenseItems} />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <DetailList title="Capital In" items={selected.capitalInItems} />
+            <DetailList title="Capital Out" items={selected.capitalOutItems} />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+            <div className="rounded border p-3">
+              <p className="text-xs text-muted-foreground">Income total</p>
+              <p className="font-semibold">{fmtMoney(selected.incomeTotal)}</p>
+            </div>
+            <div className="rounded border p-3">
+              <p className="text-xs text-muted-foreground">Expense total</p>
+              <p className="font-semibold">{fmtMoney(selected.expenseTotal)}</p>
+            </div>
+            <div className="rounded border p-3">
+              <p className="text-xs text-muted-foreground">Capital net</p>
+              <p className="font-semibold">{fmtSignedMoney(selected.capitalInTotal - selected.capitalOutTotal)}</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+            <div className="rounded border p-3">
+              <p className="text-xs text-muted-foreground">p10 (real)</p>
+              <p className="font-semibold">{fmtMoney(selected.p10)}</p>
+            </div>
+            <div className="rounded border p-3">
+              <p className="text-xs text-muted-foreground">p50 (real)</p>
+              <p className="font-semibold">{fmtMoney(selected.p50)}</p>
+            </div>
+            <div className="rounded border p-3">
+              <p className="text-xs text-muted-foreground">p90 (real)</p>
+              <p className="font-semibold">{fmtMoney(selected.p90)}</p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   )

@@ -254,4 +254,52 @@ describe('simulate', () => {
       `should show ruin when pension is excluded from drawOrder despite being large`,
     )
   })
+
+  it('netWorthPercentiles: response includes netWorthPercentiles with byAge entries', () => {
+    const input = buildSimple({ initialValue: 300_000, expensePerYear: 20000, totalYears: 40 })
+    const result = simulate(input, config)
+    assert.ok(result.netWorthPercentiles)
+    assert.ok(Array.isArray(result.netWorthPercentiles.byAge))
+    assert.equal(result.netWorthPercentiles.byAge.length, 40)
+  })
+
+  it('netWorthPercentiles: each entry has liquid, nonLiquid, and total sub-objects', () => {
+    const input = buildSimple({ initialValue: 300_000, expensePerYear: 20000, totalYears: 40 })
+    const result = simulate(input, config)
+    const entry = result.netWorthPercentiles.byAge[0]
+    assert.ok(entry.liquid && entry.liquid.nominal && entry.liquid.real)
+    assert.ok(entry.nonLiquid && entry.nonLiquid.nominal && entry.nonLiquid.real)
+    assert.ok(entry.total && entry.total.nominal && entry.total.real)
+  })
+
+  it('netWorthPercentiles: total ≈ liquid + nonLiquid (p50 check)', () => {
+    const input = {
+      pots: [
+        makePot('portfolio', 'investments', 300_000),
+        makePot('home', 'property', 500_000),
+      ],
+      primaryPot: 'portfolio',
+      retirementYear: 10,
+      years: Array.from({ length: 40 }, (_, y) => ({
+        income:      y < 10 ? [{ id: 'salary', amount: 50000 }] : [],
+        expense:     [{ id: 'spending', amount: 30000 }],
+        capitalOut:  [],
+        capitalIn:   [],
+        surplusOrder: [],
+        drawOrder:   ['portfolio'],
+      })),
+    }
+    const result = simulate(input, config)
+    const entry = result.netWorthPercentiles.byAge[20]
+    const liquidP50 = entry.liquid.nominal[49]
+    const nonLiquidP50 = entry.nonLiquid.nominal[49]
+    const totalP50 = entry.total.nominal[49]
+    const sum = liquidP50 + nonLiquidP50
+    // Allow ~5% tolerance due to independent percentile calculations across simulation paths
+    const tolerance = totalP50 * 0.05
+    assert.ok(
+      Math.abs(totalP50 - sum) <= tolerance,
+      `total p50 (${totalP50}) should ≈ liquid p50 (${liquidP50}) + nonLiquid p50 (${nonLiquidP50}), diff: ${Math.abs(totalP50 - sum)}, tolerance: ${tolerance}`,
+    )
+  })
 })

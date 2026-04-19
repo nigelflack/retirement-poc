@@ -5,7 +5,7 @@
     { "id": "pension_mimi",  "type": "investments", "owner": "mimi",  "accessFromAge": 57, "initialValue": 40000  },
     { "id": "isa_nigel",     "type": "investments", "owner": "nigel", "accessFromAge": 0,  "initialValue": 61000  },
     { "id": "isa_mimi",      "type": "investments", "owner": "mimi",  "accessFromAge": 0,  "initialValue": 50000  },
-    { "id": "cash_nigel",      "type": "investments", "owner": "nigel",  "accessFromAge": 0,  "initialValue": 1000  }
+    { "id": "cash_nigel",      "type": "cash", "owner": "nigel",  "accessFromAge": 0,  "initialValue": 1000  }
   ],
   "primaryPot": "cash_nigel",
   "people": [
@@ -25,20 +25,23 @@
     }
   ],
   "incomeSchedule": [
-    { "id": "btl_rental", "annualAmount": 7200, "fromYear": 0, "toYear": 18 },
-    { "id": "nigel_salary", "annualAmount": 110000, "fromYear": 0, "toYear": 10 },
-    { "id": "nigel_bonus", "annualAmount": 40000, "fromYear": 0, "toYear": 10 }
+    { "id": "btl_rental", "annualAmount": 7500, "fromYear": 0, "toYear": 18 },
+    { "id": "nigel_salary_vg", "annualAmount": 110000, "fromYear": 0, "toYear": 10 },
+    { "id": "nigel_bonus_vg", "annualAmount": 40000, "fromYear": 0, "toYear": 10 },
+    { "id": "nigel_salary_low", "annualAmount": 50000, "fromYear": 10, "toYear": 15 },
+    { "id": "mimi_salary", "annualAmount": 25000, "fromYear": 3, "toYear": 15 }
   ],
   "expenseSchedule": [
-    { "id": "core_spending",  "annualAmount": 60000, "fromYear": 0 },
-    { "id": "reduced_later", "annualAmount": 48000, "fromYear": 20 }
+    { "id": "non_housing_with_kids",  "annualAmount": 72000, "fromYear": 0, "toYear": 18 },
+    { "id": "non_housing_post_kids",  "annualAmount": 60000, "fromYear": 18 },
+    { "id": "mortgage",  "annualAmount": 50000, "fromYear": 0, "toYear": 10 }
   ],
   "capitalEvents": [
-    { "id": "tequila_wharf_sale", "year": 18, "amount": 200000 }
+    { "id": "tequila_wharf_sale", "year": 18, "amount": 200000, "toPot": "cash_nigel" }
   ],
   "surplusStrategy": [
     { "potId": "pension_nigel", "annualCap": 48000 },
-    { "potId": "pension_mimi",  "annualCap": 1200  },
+    { "potId": "pension_mimi",  "annualCap": 60000  },
     { "potId": "isa_mimi",      "annualCap": 20000 }
   ],
   "drawStrategy": [ "isa_nigel", "isa_mimi", "pension_nigel", "pension_mimi" ],

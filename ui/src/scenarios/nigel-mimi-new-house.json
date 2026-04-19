@@ -1,0 +1,49 @@
+{
+  "label": "Nigel and Mimi — £850k house upgrade",
+  "pots": [
+    { "id": "pension_nigel", "type": "investments", "owner": "nigel", "accessFromAge": 57, "initialValue": 330000 },
+    { "id": "pension_mimi",  "type": "investments", "owner": "mimi",  "accessFromAge": 57, "initialValue": 40000  },
+    { "id": "isa_nigel",     "type": "investments", "owner": "nigel", "accessFromAge": 0,  "initialValue": 23500  },
+    { "id": "isa_mimi",      "type": "investments", "owner": "mimi",  "accessFromAge": 0,  "initialValue": 12500  },
+    { "id": "cash_nigel",      "type": "cash", "owner": "nigel",  "accessFromAge": 0,  "initialValue": 1000  }
+  ],
+  "primaryPot": "cash_nigel",
+  "people": [
+    {
+      "id": "nigel",
+      "name": "Nigel",
+      "currentAge": 52,
+      "retirementAge": 62,
+      "statePension": { "annualAmount": 12000, "fromAge": 67 }
+    },
+    {
+      "id": "mimi",
+      "name": "Mimi",
+      "currentAge": 46,
+      "retirementAge": 56,
+      "statePension": { "annualAmount": 10000, "fromAge": 67 }
+    }
+  ],
+  "incomeSchedule": [
+    { "id": "btl_rental", "annualAmount": 7500, "fromYear": 0, "toYear": 18 },
+    { "id": "nigel_salary_vg", "annualAmount": 110000, "fromYear": 0, "toYear": 10 },
+    { "id": "nigel_bonus_vg", "annualAmount": 40000, "fromYear": 0, "toYear": 10 },
+    { "id": "nigel_salary_low", "annualAmount": 50000, "fromYear": 10, "toYear": 15 },
+    { "id": "mimi_salary", "annualAmount": 25000, "fromYear": 3, "toYear": 15 }
+  ],
+  "expenseSchedule": [
+    { "id": "non_housing_with_kids",  "annualAmount": 72000, "fromYear": 0, "toYear": 18 },
+    { "id": "non_housing_post_kids",  "annualAmount": 60000, "fromYear": 18 },
+    { "id": "mortgage",  "annualAmount": 51314, "fromYear": 0, "toYear": 15 }
+  ],
+  "capitalEvents": [
+    { "id": "tequila_wharf_sale", "year": 18, "amount": 200000, "toPot": "cash_nigel" }
+  ],
+  "surplusStrategy": [
+    { "potId": "pension_nigel", "annualCap": 48000 },
+    { "potId": "pension_mimi",  "annualCap": 60000  },
+    { "potId": "isa_mimi",      "annualCap": 20000 }
+  ],
+  "drawStrategy": [ "isa_nigel", "isa_mimi", "pension_nigel", "pension_mimi" ],
+  "toAge": 100
+}

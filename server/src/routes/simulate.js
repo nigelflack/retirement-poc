@@ -11,7 +11,7 @@ const simulationConfig = require('../../config/simulation.json');
  *   pots[]            — { id, type, owner?, accessFromAge, initialValue }
  *   primaryPot        — pot id receiving net cashflow each year
  *   people[]          — { id, name, currentAge, retirementAge, statePension? }
- *   incomeSchedule[]  — { id, annualAmount, fromYear, toYear? }
+ *   incomeSchedule[]  — { id, annualAmount, fromYear, toYear?, taxable? }
  *   expenseSchedule[] — { id, annualAmount, fromYear, toYear? }
  *   capitalEvents[]   — { id, year, amount, toPot? }
  *   surplusStrategy[] — { potId, annualCap }
@@ -19,6 +19,87 @@ const simulationConfig = require('../../config/simulation.json');
  *   toAge             — simulation horizon age (default 100)
  *   debug             — if true, include resolvedYears in response
  */
+
+// --- Tax calculation helpers ---
+
+/**
+ * Calculate UK-style income tax for a given taxable income.
+ * Applies progressive tax bands and personal allowance taper.
+ */
+function calculateUKTax(income, taxConfig) {
+  const { bands, personalAllowanceTaper } = taxConfig;
+  
+  // Determine allowance after taper
+  let allowance = bands[0] ? (bands[1]?.floor || 12570) : 12570;
+  if (personalAllowanceTaper && income > personalAllowanceTaper.incomeThreshold) {
+    const excessIncome = income - personalAllowanceTaper.incomeThreshold;
+    const allowanceLoss = excessIncome * personalAllowanceTaper.taperRate;
+    allowance = Math.max(0, allowance - allowanceLoss);
+  }
+  
+  const taxableIncome = Math.max(0, income - allowance);
+  if (taxableIncome <= 0) return 0;
+  
+  // Apply progressive tax bands
+  let tax = 0;
+  for (let i = bands.length - 1; i >= 1; i--) {
+    const band = bands[i];
+    const nextBandFloor = i < bands.length - 1 ? bands[i + 1].floor : Infinity;
+    
+    if (taxableIncome > band.floor) {
+      const upper = Math.min(taxableIncome, nextBandFloor);
+      const taxableInBand = upper - band.floor;
+      tax += taxableInBand * band.rate;
+    }
+  }
+  
+  return Math.round(tax);
+}
+
+/**
+ * Detect if estimated pension contributions might exceed taper threshold.
+ */
+function detectTaperWarnings(years, surplusStrategy, pots, taxConfig) {
+  const warnings = [];
+  const taperedThreshold = taxConfig.taperedAllowanceThreshold || 60000;
+  const warningYears = [];
+
+  for (let y = 0; y < years.length; y++) {
+    const yr = years[y];
+    let pensionContribution = 0;
+    
+    // Estimate pension contributions from surplus strategy
+    if (yr.surplusOrder) {
+      for (const surplus of yr.surplusOrder) {
+        const pot = pots.find(p => p.id === surplus.potId);
+        if (pot && (pot.type === 'investments' || pot.id.includes('pension'))) {
+          pensionContribution += surplus.maxAmount;
+        }
+      }
+    }
+    
+    // Check if income + pension contributions exceed threshold
+    let grossIncome = 0;
+    if (yr.income) {
+      for (const inc of yr.income) {
+        grossIncome += inc.amount;
+      }
+    }
+    
+    if (grossIncome + pensionContribution > taperedThreshold) {
+      warningYears.push(y);
+    }
+  }
+
+  if (warningYears.length > 0) {
+    const startYear = warningYears[0];
+    const endYear = warningYears[warningYears.length - 1];
+    warnings.push(`Estimated pension contribution exceeds tapered allowance threshold in years ${startYear}–${endYear}`);
+  }
+
+  return { warnings, warningYears };
+}
+
 router.post('/', (req, res) => {
   const {
     pots,
@@ -121,7 +202,7 @@ router.post('/', (req, res) => {
     // Income items active this year.
     const income = syntheticIncome
       .filter(item => y >= item.fromYear && (item.toYear == null || y < item.toYear))
-      .map(item => ({ id: item.id, amount: item.annualAmount }));
+      .map(item => ({ id: item.id, amount: item.annualAmount, taxable: item.taxable || false }));
 
     // Expense items active this year.
     const expense = expenseSchedule
@@ -136,7 +217,7 @@ router.post('/', (req, res) => {
     // Capital events with no toPot (or toPot = primaryPot) land as income.
     for (const e of thisYearEvents) {
       if (!e.toPot || e.toPot === primaryPot) {
-        if (e.amount > 0)  income.push({ id: e.id, amount:  e.amount });
+        if (e.amount > 0)  income.push({ id: e.id, amount:  e.amount, taxable: false });
         if (e.amount < 0) expense.push({ id: e.id, amount: -e.amount });
       }
     }
@@ -160,6 +241,16 @@ router.post('/', (req, res) => {
       return y >= (potAccessYear[potId] || 0);
     });
 
+    // Calculate tax for this year (taxable income only)
+    let taxableIncome = 0;
+    for (const inc of income) {
+      if (inc.taxable) taxableIncome += inc.amount;
+    }
+    
+    const yearTax = simulationConfig.tax 
+      ? calculateUKTax(taxableIncome, simulationConfig.tax)
+      : 0;
+
     return {
       income,
       expense,
@@ -167,8 +258,21 @@ router.post('/', (req, res) => {
       capitalIn: [],
       surplusOrder,
       drawOrder,
+      tax: yearTax,
+      warnings: [],
     };
   });
+
+  // --- Detect taper warnings ---
+  const { warnings: taperWarnings, warningYears } = detectTaperWarnings(years, surplusStrategy, pots, simulationConfig.tax || {});
+  
+  // Add per-year taper warning details
+  for (const warnYear of warningYears) {
+    if (years[warnYear]) {
+      years[warnYear].warnings = years[warnYear].warnings || [];
+      years[warnYear].warnings.push('Estimated pension contribution exceeds tapered allowance threshold');
+    }
+  }
 
   // --- Run engine ---
   const engineInput = { pots, primaryPot, retirementYear, years };
@@ -185,9 +289,11 @@ router.post('/', (req, res) => {
     householdRetirementAge:  earliest.retirementAge,
     householdRetirementName: earliest.name,
     retirementYear:          retirementYear,
+    warnings:                taperWarnings,
     accumulationSnapshot:    engineResult.accumulationSnapshot,
     statePensions,
     probabilityOfRuin:       engineResult.probabilityOfRuin,
+    netWorthPercentiles:     engineResult.netWorthPercentiles || { byAge: [] },
     survivalTable:           engineResult.survivalTable.map(e => ({
       age: refPerson.currentAge + e.yearIndex + 1,
       yearIndex: e.yearIndex,

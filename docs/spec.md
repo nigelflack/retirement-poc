@@ -42,6 +42,38 @@ Solve endpoints run 2,000 paths per search iteration for speed.
 
 **Solve for ages** (`POST /solve/ages`): binary search over a retirement age offset window (0–20 years from a floor) to find the earliest ages at which a given monthly income meets the solvency target. All people's ages advance together to preserve the gap between them.
 
+### Tax approximation
+
+The system includes a UK-style income tax approximation for planning-grade accuracy. Income items marked as `taxable: true` are subject to:
+
+- Progressive tax bands defined in `server/config/simulation.json` (default: 0% up to personal allowance, 20% / 40% / 45% bands)
+- Personal allowance taper: if income exceeds the threshold, the allowance reduces by £0.50 per £1 above
+- Tax is estimated year-by-year and reported in debug output
+
+**Non-taxable income** (e.g., ISA withdrawals, investment income already taxed) defaults to `taxable: false`.
+
+Tax estimates are directional; they do not account for dividend allowance, capital gains treatment, National Insurance, or other complex tax rules. They are suitable for household planning discussions, not filing returns.
+
+### Net-worth split
+
+The simulation returns three net-worth perspectives for each year:
+
+- **Liquid**: investments and cash pots (spendable, available on demand)
+- **Non-liquid**: property pots (not immediately accessible; included for household wealth context)
+- **Total**: sum of liquid and non-liquid
+
+This split prevents late-life outcomes appearing as insolvency when substantial property equity exists.
+
+### Pension taper warnings
+
+If inferred pension contributions (via surplus routing to pension pots) appear to exceed pension annual allowance thresholds:
+
+- A warning is included in the response (e.g., "Estimated pension draw exceeds tapered allowance in years 25–26")
+- Per-year warning details appear in debug output (`resolvedYears[y].warnings[]`)
+- Warnings are **advisory only** — the simulation does not block or adjust contributions
+
+This allows users to see potential taper exposure without complexity; optimization is deferred to future versions.
+
 ---
 
 ## Web UI

@@ -61,7 +61,7 @@ Responsibilities:
 - Apply `surplusOrder` only during accumulation (before each person's `retirementAge`)
 - Decorate response: map `yearIndex` → `age` using the reference person's `currentAge`
 
-### Simulation engine: `server/src/simulation/run.js`
+### Simulation engine: `server/src/simulation/engine.js`
 
 Pure cashflow Monte Carlo. Receives the fully-resolved year array; has no knowledge of retirement rules, pension access, or person ages.
 
@@ -74,12 +74,24 @@ Per-year loop (each of N simulations):
 6. `drawOrder` — if `primaryPot < 0`, draw from ordered pots to cover deficit
 7. Ruin check: if liquid total (investments + cash) < 0, mark simulation as ruined; floor liquid pots at 0
 8. Apply stochastic returns to every pot independently (per-type log-normal or fixed-rate)
-9. Record liquid portfolio value for fan chart
+9. Record liquid portfolio value and non-liquid/total net-worth for output
+10. Return percentile arrays for liquid, non-liquid (e.g., property), and total net worth
 
-Engine output: `survivalTable`, `portfolioPercentiles.byYear`, `accumulationSnapshot`, `probabilityOfRuin`.
+Engine output: `survivalTable`, `portfolioPercentiles.byYear`, `netWorthPercentiles.byYear` (liquid/nonLiquid/total), `accumulationSnapshot`, `probabilityOfRuin`.
+
+### Tax approximation layer
+
+The adapter (`server/src/routes/simulate.js`) performs UK-style tax calculations after the engine output is available:
+
+- For each year: identify income items marked `taxable: true`
+- Apply `income - personalAllowance → taxable income`
+- If income exceeds `personalAllowanceTaper.incomeThreshold`, reduce allowance by `taperRate` per pound
+- Apply progressive tax brackets from `server/config/simulation.json` to compute estimated tax burden
+- Subtracts estimated tax from p50 output to estimate available spend
+- Accumulates warnings if pension contributions (via `surplusStrategy` to pension pots) exceed tapered allowance thresholds
 
 **`server/src/simulation/math.js`** — pure math utilities (`sampleNormal`, `logNormalParams`, `percentile`)  
-**`server/config/simulation.json`** — per-type return params + inflation params + simulation count
+**`server/config/simulation.json`** — tax bands + allowance parameters, per-type return params + inflation params + simulation count
 
 For domain rules, see `docs/spec.md`.
 

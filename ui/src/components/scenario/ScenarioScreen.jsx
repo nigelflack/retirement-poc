@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -132,32 +132,45 @@ function ScenarioCard({ card, people, onClick }) {
   )
 }
 
-function validatePeopleFile(data) {
+function validateScenarioFile(data) {
   if (!data || !Array.isArray(data.people) || data.people.length === 0) return false
+  if (!Array.isArray(data.pots) || data.pots.length === 0) return false
+  if (typeof data.primaryPot !== 'string' || !data.primaryPot.trim()) return false
   return data.people.every(p =>
-    typeof p.name === 'string' && p.name.trim() &&
-    typeof p.currentAge === 'number' &&
-    Array.isArray(p.accounts) && p.accounts.length > 0,
+    typeof p.name === 'string' && p.name.trim() && typeof p.currentAge === 'number',
   )
 }
 
-export default function ScenarioScreen({ people, capitalEvents, scenarioLabel, initialMonthlyIncome = 3000, initialSpendingSchedule = [], onEditDetails, onEditAccounts, onPeopleLoad, onHouseholdLoad }) {
+export default function ScenarioScreen({ scenario, onScenarioLoad }) {
+  const people = scenario?.people ?? []
+  const capitalEvents = scenario?.capitalEvents ?? []
+  const scenarioLabel = scenario?.label ?? ''
   const hasPartner = people.length > 1
-  const primary = people[0]
+  const primary = people[0] ?? null
   const partner = people[1] ?? null
 
-  // Scenario params
-  const defaultRetirementAges = Object.fromEntries(
-    people.map(p => [p.name, typeof p.retirementAge === 'number' ? p.retirementAge : Math.min(p.currentAge + 10, 65)])
+  const defaultRetirementAges = useMemo(
+    () => Object.fromEntries(
+      (scenario?.people ?? []).map(p => [p.name, typeof p.retirementAge === 'number' ? p.retirementAge : Math.min(p.currentAge + 10, 65)])
+    ),
+    [scenario],
   )
+
+  const defaultMonthlyIncome = useMemo(() => {
+    const annual = scenario?.expenseSchedule?.[0]?.annualAmount
+    if (typeof annual === 'number') return Math.round(annual / 12)
+    return 3000
+  }, [scenario])
+
+  // Scenario params
   const [retirementAges, setRetirementAges] = useState(defaultRetirementAges)
-  const [monthlyIncome, setMonthlyIncome] = useState(initialMonthlyIncome)
+  const [monthlyIncome, setMonthlyIncome] = useState(defaultMonthlyIncome)
   const [retireTogether, setRetireTogether] = useState(false)
 
   // Simulation state
   const [lastResult, setLastResult] = useState(null)
   const [lastRunAges, setLastRunAges] = useState(defaultRetirementAges)
-  const [lastRunIncome, setLastRunIncome] = useState(initialMonthlyIncome)
+  const [lastRunIncome, setLastRunIncome] = useState(defaultMonthlyIncome)
   const [lastP50, setLastP50] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -169,35 +182,40 @@ export default function ScenarioScreen({ people, capitalEvents, scenarioLabel, i
   const [p2Right, setP2Right] = useState(null)
   const [p3Mid, setP3Mid] = useState(null)          // extra solve/income for low-bucket middle card
 
-  // Spending schedule state (full list, replaces step-change)
-  const [spendingSchedule, setSpendingSchedule] = useState(initialSpendingSchedule)
-  const [spendingScheduleOpen, setSpendingScheduleOpen] = useState(initialSpendingSchedule.length > 0)
-
   // Load/save state
   const [loadError, setLoadError] = useState(null)
   const fileInputRef = useRef(null)
 
   // Previous values to revert to on error
   const prevRetirementAges = useRef(defaultRetirementAges)
-  const prevMonthlyIncome = useRef(initialMonthlyIncome)
+  const prevMonthlyIncome = useRef(defaultMonthlyIncome)
   const debounceTimer = useRef(null)
   const p2RunIdRef = useRef(0)
 
   // Build the POST /simulate payload
   const buildPayload = useCallback((ages, income) => {
+    const expenseSchedule = Array.isArray(scenario?.expenseSchedule) && scenario.expenseSchedule.length > 0
+      ? scenario.expenseSchedule.map((entry, idx) => ({
+          ...entry,
+          annualAmount: idx === 0 ? income * 12 : entry.annualAmount,
+        }))
+      : [{ id: 'core_spending', annualAmount: income * 12, fromYear: 0 }]
+
     const payload = {
-      people: people.map(p => ({ ...p, retirementAge: ages[p.name] })),
-      monthlySpendingTarget: income,
-      toAge: 100,
+      pots: scenario?.pots ?? [],
+      primaryPot: scenario?.primaryPot,
+      people: people.map(p => ({ ...p, retirementAge: ages[p.name] ?? p.retirementAge })),
+      incomeSchedule: scenario?.incomeSchedule ?? [],
+      expenseSchedule,
+      capitalEvents: scenario?.capitalEvents ?? [],
+      surplusStrategy: scenario?.surplusStrategy ?? [],
+      drawStrategy: scenario?.drawStrategy ?? [],
+      toAge: scenario?.toAge ?? 100,
       debug: true,
     }
-    if (spendingSchedule.length > 0) {
-      payload.spendingSchedule = spendingSchedule
-    }
-    if (capitalEvents && capitalEvents.length > 0) payload.capitalEvents = capitalEvents
     if (scenarioLabel) payload.label = scenarioLabel
     return payload
-  }, [people, spendingSchedule, capitalEvents, scenarioLabel])
+  }, [people, scenario, scenarioLabel])
 
   const runSimulation = useCallback(async (ages, income, p50) => {
     setIsLoading(true)
@@ -227,11 +245,24 @@ export default function ScenarioScreen({ people, capitalEvents, scenarioLabel, i
     }, 400)
   }, [runSimulation, lastP50])
 
-  // Run on mount
+  // Re-initialize controls when scenario changes
   useEffect(() => {
-    runSimulation(retirementAges, monthlyIncome, null)
+    setRetirementAges(defaultRetirementAges)
+    setMonthlyIncome(defaultMonthlyIncome)
+    setRetireTogether(false)
+    setLastResult(null)
+    setLastRunAges(defaultRetirementAges)
+    setLastRunIncome(defaultMonthlyIncome)
+    prevRetirementAges.current = defaultRetirementAges
+    prevMonthlyIncome.current = defaultMonthlyIncome
+  }, [defaultRetirementAges, defaultMonthlyIncome])
+
+  // Run simulation when a valid scenario is present
+  useEffect(() => {
+    if (!scenario || people.length === 0) return
+    runSimulation(defaultRetirementAges, defaultMonthlyIncome, null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [scenario, defaultRetirementAges, defaultMonthlyIncome])
 
   // Fire Panel 2 solve calls after every successful run
   useEffect(() => {
@@ -248,7 +279,7 @@ export default function ScenarioScreen({ people, capitalEvents, scenarioLabel, i
     setP2Right(null)
     setP3Mid(null)
 
-    const peopleWithAges = people.map(p => ({ ...p, retirementAge: ages[p.name] }))
+    const peopleWithAges = people.map(p => ({ ...p, retirementAge: ages[p.name] ?? p.retirementAge }))
 
     async function compute() {
       if (isLow) {
@@ -300,13 +331,9 @@ export default function ScenarioScreen({ people, capitalEvents, scenarioLabel, i
 
   // Save / Load handlers
   function handleSave() {
-    const data = {
-      people: people.map(p => ({ ...p, retirementAge: retirementAges[p.name] })),
-      monthlySpendingTarget: monthlyIncome,
-    }
-    if (scenarioLabel) data.label = scenarioLabel
-    if (spendingSchedule.length > 0) data.spendingSchedule = spendingSchedule
-    if (capitalEvents && capitalEvents.length > 0) data.capitalEvents = capitalEvents
+    if (!scenario) return
+    const data = buildPayload(retirementAges, monthlyIncome)
+    delete data.debug
     const filename = people.map(p => p.name.toLowerCase().replace(/\s+/g, '-')).join('-') + '.json'
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
@@ -329,36 +356,12 @@ export default function ScenarioScreen({ people, capitalEvents, scenarioLabel, i
     reader.onload = (ev) => {
       try {
         const data = JSON.parse(ev.target.result)
-        if (!validatePeopleFile(data)) {
+        if (!validateScenarioFile(data)) {
           setLoadError('Could not load file — invalid format.')
           return
         }
-        onPeopleLoad(data.people)
-        // Restore retirement ages
-        const loadedAges = Object.fromEntries(
-          data.people.map(p => [
-            p.name,
-            typeof p.retirementAge === 'number' ? p.retirementAge : Math.min(p.currentAge + 10, 65),
-          ])
-        )
-        setRetirementAges(loadedAges)
-        prevRetirementAges.current = loadedAges
-        // Restore spending target
-        if (typeof data.monthlySpendingTarget === 'number') {
-          setMonthlyIncome(data.monthlySpendingTarget)
-        }
-        // Restore spending schedule
-        if (Array.isArray(data.spendingSchedule) && data.spendingSchedule.length > 0) {
-          setSpendingSchedule(data.spendingSchedule)
-          setSpendingScheduleOpen(true)
-        } else {
-          setSpendingSchedule([])
-        }
-        // Restore household fields (capital events, label)
-        onHouseholdLoad({
-          capitalEvents: data.capitalEvents ?? [],
-          label: data.label ?? '',
-        })
+        setLoadError(null)
+        onScenarioLoad(data)
       } catch {
         setLoadError('Could not load file — invalid format.')
       }
@@ -474,6 +477,44 @@ export default function ScenarioScreen({ people, capitalEvents, scenarioLabel, i
   const p2RightTitle = p2Bucket === 'low' ? 'Working until…' : 'To afford +20% more'
   const panel3Cards = getPanel3Cards()
 
+  if (!scenario || people.length === 0 || !primary) {
+    return (
+      <div className="min-h-screen bg-background px-4 py-10">
+        <div className="w-full max-w-2xl mx-auto space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Load a scenario JSON to begin</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                The scenario explorer currently supports JSON-loaded scenarios only.
+              </p>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleLoadClick}
+                  className="text-sm text-primary underline-offset-4 hover:underline"
+                >
+                  [Load]
+                </button>
+                <Link to="/scenarios" className="text-sm text-primary underline-offset-4 hover:underline">
+                  Browse built-in scenarios →
+                </Link>
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json"
+                className="hidden"
+                onChange={handleFileChange}
+              />
+              {loadError && <p className="text-xs text-destructive">{loadError}</p>}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-background px-4 py-8">
       <div className="w-full max-w-3xl mx-auto space-y-4">
@@ -482,18 +523,9 @@ export default function ScenarioScreen({ people, capitalEvents, scenarioLabel, i
         <div className="flex items-center justify-between flex-wrap gap-2">
           <span className="text-sm font-medium text-foreground">{headerName}</span>
           <div className="flex items-center gap-3">
-            <button
-              onClick={onEditDetails}
-              className="text-sm text-primary underline-offset-4 hover:underline"
-            >
-              [Edit details]
-            </button>
-            <button
-              onClick={onEditAccounts}
-              className="text-sm text-primary underline-offset-4 hover:underline"
-            >
-              [Edit accounts]
-            </button>
+            <Link to="/scenarios" className="text-sm text-primary underline-offset-4 hover:underline">
+              [Scenarios]
+            </Link>
             <button
               onClick={handleSave}
               className="text-sm text-primary underline-offset-4 hover:underline"
@@ -515,9 +547,7 @@ export default function ScenarioScreen({ people, capitalEvents, scenarioLabel, i
             />
           </div>
         </div>
-        {loadError && (
-          <p className="text-xs text-destructive">{loadError}</p>
-        )}
+        {loadError && <p className="text-xs text-destructive">{loadError}</p>}
 
         {/* Panel 1 — Your Retirement Goal */}
         <Card className={cn(isLoading && 'opacity-60 pointer-events-none')}>
@@ -595,84 +625,6 @@ export default function ScenarioScreen({ people, capitalEvents, scenarioLabel, i
                   >↓</button>
                   <span className="text-xs text-muted-foreground">per month</span>
                 </div>
-
-                {/* Spending schedule */}
-                <div className="pt-1 text-xs">
-                  <button
-                    className="text-primary hover:underline underline-offset-2"
-                    onClick={() => setSpendingScheduleOpen(o => !o)}
-                    disabled={isLoading}
-                  >
-                    {spendingScheduleOpen ? '▲' : '▼'} Spending schedule
-                  </button>
-                  {spendingScheduleOpen && (
-                    <div className="mt-2 space-y-2 text-left">
-                      {spendingSchedule.length > 0 && (
-                        <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-1 text-muted-foreground mb-1">
-                          <span>From year</span>
-                          <span>Monthly (£)</span>
-                          <span>Label</span>
-                          <span />
-                        </div>
-                      )}
-                      {spendingSchedule.map((s, idx) => (
-                        <div key={idx} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-1 items-center">
-                          <Input
-                            type="number"
-                            min={0}
-                            className="text-xs h-7"
-                            placeholder="e.g. 10"
-                            value={s.fromYearsFromRetirement}
-                            onChange={e => {
-                              const updated = spendingSchedule.map((x, i) => i === idx ? { ...x, fromYearsFromRetirement: e.target.value } : x)
-                              setSpendingSchedule(updated)
-                              scheduleRun(retirementAges, monthlyIncome)
-                            }}
-                            disabled={isLoading}
-                          />
-                          <Input
-                            type="number"
-                            min={0}
-                            className="text-xs h-7"
-                            placeholder="e.g. 2000"
-                            value={s.monthlyAmount}
-                            onChange={e => {
-                              const updated = spendingSchedule.map((x, i) => i === idx ? { ...x, monthlyAmount: e.target.value } : x)
-                              setSpendingSchedule(updated)
-                              scheduleRun(retirementAges, monthlyIncome)
-                            }}
-                            disabled={isLoading}
-                          />
-                          <Input
-                            type="text"
-                            className="text-xs h-7"
-                            placeholder="optional"
-                            value={s.label ?? ''}
-                            onChange={e => {
-                              const updated = spendingSchedule.map((x, i) => i === idx ? { ...x, label: e.target.value } : x)
-                              setSpendingSchedule(updated)
-                            }}
-                            disabled={isLoading}
-                          />
-                          <button
-                            className="text-muted-foreground hover:text-destructive px-1"
-                            onClick={() => {
-                              const updated = spendingSchedule.filter((_, i) => i !== idx)
-                              setSpendingSchedule(updated)
-                              scheduleRun(retirementAges, monthlyIncome)
-                            }}
-                            disabled={isLoading}
-                          >✕</button>
-                        </div>
-                      ))}
-                      <button
-                        className="text-primary hover:underline underline-offset-2"
-                        onClick={() => setSpendingSchedule(prev => [...prev, { fromYearsFromRetirement: '', monthlyAmount: '', label: '' }])}
-                        disabled={isLoading}
-                      >+ Add step</button>
-                    </div>
-                  )}
-                </div>
               </div>
             </div>
 
@@ -722,6 +674,16 @@ export default function ScenarioScreen({ people, capitalEvents, scenarioLabel, i
             {/* Error state */}
             {error && (
               <p className="text-xs text-destructive text-center">{error}</p>
+            )}
+
+            {/* Warnings state */}
+            {lastResult?.warnings && lastResult.warnings.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs font-semibold text-amber-600">Warnings</p>
+                {lastResult.warnings.map((warning, i) => (
+                  <p key={i} className="text-xs text-amber-600">{warning}</p>
+                ))}
+              </div>
             )}
           </CardContent>
         </Card>

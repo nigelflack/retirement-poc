@@ -2,8 +2,19 @@
   "numSimulations": 10000,
   "inflation": { "mean": 0.025, "stdDev": 0.005 },
   "returns": {
-    "investments": { "mean": 0.07, "stdDev": 0.12 },
+    "investments": { "mean": 0.06, "stdDev": 0.12 },
     "property":    { "mean": 0.03, "stdDev": 0.08 },
     "cash":        { "mean": 0.04, "stdDev": 0.0  }
+  },
+  "tax": {
+    "bands": [
+      { "floor": 0,      "rate": 0.0  },
+      { "floor": 12570,  "rate": 0.20 },
+      { "floor": 50270,  "rate": 0.40 },
+      { "floor": 125140, "rate": 0.45 }
+    ],
+    "personalAllowanceTaper": { "incomeThreshold": 100000, "taperRate": 0.5 },
+    "taperedAllowanceThreshold": 60000,
+    "taperedAllowanceAnnualMax": 60000
   }
 }

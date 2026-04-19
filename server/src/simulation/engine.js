@@ -90,7 +90,11 @@ function runPath(potDefs, years, retirementYear, model, isLiquid, primaryIdx, po
   let ruined         = false;
 
   const liquidByYear    = new Array(totalYears);
-  const realByYear      = new Array(totalYears);
+  const realLiquidByYear      = new Array(totalYears);
+  const nonLiquidByYear = new Array(totalYears);
+  const realNonLiquidByYear   = new Array(totalYears);
+  const totalByYear    = new Array(totalYears);
+  const realTotalByYear      = new Array(totalYears);
   const drawdownSolvent = new Array(drawdownYears).fill(false);
   let retirementValue;
   let retirementRealValue;
@@ -122,10 +126,17 @@ function runPath(potDefs, years, retirementYear, model, isLiquid, primaryIdx, po
       pots[pi] *= sampleReturnFactor(model, potDefs[pi].type, y, rng);
     }
 
-    // 8. Record.
+    // 8. Record all three perspectives (liquid, non-liquid, total).
     const nomLiquid = pots.reduce((s, v, i) => s + (isLiquid[i] ? v : 0), 0);
+    const nomNonLiquid = pots.reduce((s, v, i) => s + (!isLiquid[i] ? v : 0), 0);
+    const nomTotal = nomLiquid + nomNonLiquid;
+    
     liquidByYear[y] = nomLiquid;
-    realByYear[y]   = nomLiquid / cumInflation;
+    realLiquidByYear[y]   = nomLiquid / cumInflation;
+    nonLiquidByYear[y] = nomNonLiquid;
+    realNonLiquidByYear[y]   = nomNonLiquid / cumInflation;
+    totalByYear[y] = nomTotal;
+    realTotalByYear[y]   = nomTotal / cumInflation;
 
     if (y === retirementYear - 1) {
       retirementValue     = nomLiquid;
@@ -142,31 +153,22 @@ function runPath(potDefs, years, retirementYear, model, isLiquid, primaryIdx, po
     retirementRealValue = retirementValue / cumInflation;
   }
 
-  return { ruined, retirementValue, retirementRealValue, liquidByYear, realByYear, drawdownSolvent };
+  return { 
+    ruined, 
+    retirementValue, 
+    retirementRealValue, 
+    liquidByYear, 
+    realByYear: realLiquidByYear,
+    nonLiquidByYear,
+    realNonLiquidByYear,
+    totalByYear,
+    realTotalByYear,
+    drawdownSolvent 
+  };
 }
 
 // --- Main simulation ---
 
-/**
- * Cashflow Monte Carlo simulation engine.
- *
- * Receives a fully-resolved year array (produced by the adapter) and runs
- * a single continuous loop from year 0 to the end of the simulation horizon.
- * There is no accumulation/drawdown phase split — the engine has no knowledge
- * of retirement ages, pension rules, or accessibility windows.
- *
- * @param {object}   input
- * @param {object[]} input.pots            - pot definitions: { id, type, initialValue }
- * @param {string}   input.primaryPot      - pot id that receives net cashflow each year
- * @param {number}   input.retirementYear  - year index of household retirement (for snapshot only)
- * @param {object[]} input.years           - per-year cashflow items (see spec)
- * @param {object}   config                - from simulation.json
- * @param {number}   config.numSimulations
- * @param {object}   config.inflation      - { mean, stdDev }
- * @param {object}   config.returns        - { investments, property, cash } each { mean, stdDev }
- * @param {function} [rng]                 - optional injectable RNG: () => N(0,1).
- *                                           Defaults to sampleStandardNormal.
- */
 function simulate(input, config, rng = sampleStandardNormal) {
   const { pots: potDefs, primaryPot: primaryPotId, retirementYear, years } = input;
   const { numSimulations } = config;
@@ -184,6 +186,10 @@ function simulate(input, config, rng = sampleStandardNormal) {
 
   const liquidValuesByYear = Array.from({ length: totalYears }, () => []);
   const realLiquidByYear   = Array.from({ length: totalYears }, () => []);
+  const nonLiquidValuesByYear = Array.from({ length: totalYears }, () => []);
+  const realNonLiquidByYear   = Array.from({ length: totalYears }, () => []);
+  const totalValuesByYear = Array.from({ length: totalYears }, () => []);
+  const realTotalByYear   = Array.from({ length: totalYears }, () => []);
   const retirementPots     = new Array(numSimulations);
   const retirementRealPots = new Array(numSimulations);
   const solventAtDrawdownYear = new Array(drawdownYears).fill(0);
@@ -197,6 +203,10 @@ function simulate(input, config, rng = sampleStandardNormal) {
     for (let y = 0; y < totalYears; y++) {
       liquidValuesByYear[y].push(path.liquidByYear[y]);
       realLiquidByYear[y].push(path.realByYear[y]);
+      nonLiquidValuesByYear[y].push(path.nonLiquidByYear[y]);
+      realNonLiquidByYear[y].push(path.realNonLiquidByYear[y]);
+      totalValuesByYear[y].push(path.totalByYear[y]);
+      realTotalByYear[y].push(path.realTotalByYear[y]);
     }
 
     retirementPots[sim]     = path.retirementValue;
@@ -219,6 +229,23 @@ function simulate(input, config, rng = sampleStandardNormal) {
     real:    allPercentiles(realLiquidByYear[y]),
   }));
 
+  // Build net-worth split (liquid, non-liquid, total)
+  const netWorthByAge = liquidValuesByYear.map((vals, y) => ({
+    yearIndex: y,
+    liquid: {
+      nominal: allPercentiles(liquidValuesByYear[y]),
+      real:    allPercentiles(realLiquidByYear[y]),
+    },
+    nonLiquid: {
+      nominal: allPercentiles(nonLiquidValuesByYear[y]),
+      real:    allPercentiles(realNonLiquidByYear[y]),
+    },
+    total: {
+      nominal: allPercentiles(totalValuesByYear[y]),
+      real:    allPercentiles(realTotalByYear[y]),
+    },
+  }));
+
   const survivalTable = [];
   for (let dy = 0; dy < drawdownYears; dy++) {
     survivalTable.push({
@@ -234,6 +261,7 @@ function simulate(input, config, rng = sampleStandardNormal) {
     probabilityOfRuin: parseFloat((ruinCount / numSimulations).toFixed(4)),
     survivalTable,
     portfolioPercentiles: { byYear: byAge },
+    netWorthPercentiles: { byAge: netWorthByAge },
   };
 }
 
