@@ -73,22 +73,51 @@ Per-year loop (each of N simulations):
 5. `surplusOrder` — route surplus from `primaryPot` to secondary pots (capped per entry)
 6. `drawOrder` — if `primaryPot < 0`, draw from ordered pots to cover deficit
 7. Ruin check: if liquid total (investments + cash) < 0, mark simulation as ruined; floor liquid pots at 0
-8. Apply stochastic returns to every pot independently (per-type log-normal or fixed-rate)
+8. Apply per-pot return model (stochastic by type for investments/property/cash; deterministic depreciation for depreciating assets)
 9. Record liquid portfolio value and non-liquid/total net-worth for output
-10. Return percentile arrays for liquid, non-liquid (e.g., property), and total net worth
+10. Return percentile arrays for liquid, non-liquid (e.g., property/depreciating), and total net worth
 
 Engine output: `survivalTable`, `portfolioPercentiles.byYear`, `netWorthPercentiles.byYear` (liquid/nonLiquid/total), `accumulationSnapshot`, `probabilityOfRuin`.
 
-### Tax approximation layer
+### Tax, NI, property, and pension contribution layer
 
-The adapter (`server/src/routes/simulate.js`) performs UK-style tax calculations after the engine output is available:
+The adapter (`server/src/routes/simulate.js`) builds per-year cashflow arrays before passing them to the engine. Tax and NI are injected as expense items in those arrays so they reduce cashflow directly (not debug-only metadata).
 
-- For each year: identify income items marked `taxable: true`
-- Apply `income - personalAllowance → taxable income`
-- If income exceeds `personalAllowanceTaper.incomeThreshold`, reduce allowance by `taperRate` per pound
-- Apply progressive tax brackets from `server/config/simulation.json` to compute estimated tax burden
-- Subtracts estimated tax from p50 output to estimate available spend
-- Accumulates warnings if pension contributions (via `surplusStrategy` to pension pots) exceed tapered allowance thresholds
+**Income tax** — computed per owner bucket each year:
+- Group taxable income by `owner` (person id)
+- Items with no `owner` are taxed in a household bucket for backward compatibility
+- Apply personal allowance (tapered if income exceeds threshold) then progressive bands
+- The first taxed band (basic rate) starts at the effective personal allowance, not the band's nominal floor — this is important when the allowance is tapered below its standard value
+- Employee pension contributions (via surplus routing) reduce tax by higher/additional-rate relief: `grossContrib × max(0, marginalRate − 0.20)`
+- BTL mortgage-interest credit reduces tax by `20% × annualInterestPaid`
+- Owner-bucket taxes are summed and injected as `{ id: 'income_tax', amount: yearTax }` expense
+
+**Employee NI (Class 1)** — computed per owner bucket each year:
+- Group employment income by `owner` and apply NI bands per bucket
+- Apply 2025/26 bands: 0% up to £12,570; 8% on £12,570–£50,270; 2% above £50,270
+- Owner-bucket NI values are summed and injected as `{ id: 'ni', amount: yearNI }` expense
+
+**Property + mortgage + BTL layer**:
+- Property pots may define `mortgage` and optional BTL fields (`monthlyRent`, `monthlyExpenses`)
+- Adapter tracks outstanding mortgage balances year-by-year in real terms (today's money basis)
+- Repayment mortgages amortize principal; interest-only mortgages keep principal flat unless overpayments are configured
+- Mortgage payments are injected as expense lines and stop automatically once balance reaches zero
+- BTL rent/expenses are injected as cashflow lines; taxable BTL approximation is `rent - expenses - mortgage payments`
+
+**CapitalIn liquidation extensions**:
+- `capitalIn` supports fixed amount transfer, full liquidation (no amount), or haircut liquidation (`proceeds = value × (1 - haircut)`)
+
+**Employer pension contributions** — resolved per income line before the year array is built:
+- If `employerPensionAnnual` or `employerPensionPct` is set on an income item, compute contribution amount
+- Inject as non-taxable income item (arrives in primary pot) AND as capitalOut to the pension pot
+- Net effect on primary pot: zero. Pension pot grows by the contribution amount each active year.
+
+**Employee relief-at-source (pension surplus routing)**:
+- Pension pots in `surplusStrategy` are marked `grossUpFactor: 1.25` in the engine year array
+- The engine's `applySurplus` credits the pension pot with `transfer × grossUpFactor`: primary pot loses the net amount, pension gains the gross amount (25% HMRC top-up is free money from the model's perspective)
+- Higher/additional-rate relief is applied against the year's tax liability (see income tax above)
+
+**Taper warnings** — accumulated when estimated pension contributions (via surplus caps) plus taxable income exceed the tapered annual allowance threshold. Per-year details in debug output.
 
 **`server/src/simulation/math.js`** — pure math utilities (`sampleNormal`, `logNormalParams`, `percentile`)  
 **`server/config/simulation.json`** — tax bands + allowance parameters, per-type return params + inflation params + simulation count

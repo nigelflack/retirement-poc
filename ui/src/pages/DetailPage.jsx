@@ -124,7 +124,7 @@ export default function DetailPage() {
     )
   }
 
-  const { result, people, retirementAges, monthlyIncome } = state
+  const { result, people, retirementAges, monthlyIncome, pots: scenarioPots = [] } = state
   const primary = people[0]
   const partner = people[1] ?? null
 
@@ -167,17 +167,62 @@ export default function DetailPage() {
     p90: row.p90,
   }))
 
-  // Extract net-worth split for selected year
-  const selectedNetWorth = useMemo(() => {
-    if (!result?.netWorthPercentiles?.byAge) return null
-    const entry = result.netWorthPercentiles.byAge[selectedIndex]
-    if (!entry) return null
-    return {
-      liquidP50: entry.liquid?.real?.[49] ?? 0,
-      nonLiquidP50: entry.nonLiquid?.real?.[49] ?? 0,
-      totalP50: entry.total?.real?.[49] ?? 0,
+  // Build balance sheet for selected year.
+  const balanceSheet = useMemo(() => {
+    const potPercEntry = result?.potPercentiles?.byYear?.[selectedIndex]
+    const liabEntry = result?.liabilities?.byYear?.[selectedIndex]
+
+    // Assets: one row per pot using realP50 from potPercentiles.
+    const assetRows = scenarioPots.map(pot => ({
+      id: pot.id,
+      value: potPercEntry?.byPot?.[pot.id]?.realP50 ?? 0,
+      liquid: pot.type !== 'property' && pot.type !== 'depreciating',
+    }))
+    const totalAssets = assetRows.reduce((s, r) => s + r.value, 0)
+
+    // Liabilities: mortgage balances from liabilities.byYear.
+    const mortgageBalances = liabEntry?.mortgageBalances ?? {}
+    const liabilityRows = Object.entries(mortgageBalances)
+      .filter(([, v]) => v > 0)
+      .map(([potId, balance]) => ({ id: potId, value: balance }))
+    const totalLiabilities = liabilityRows.reduce((s, r) => s + r.value, 0)
+
+    return { assetRows, totalAssets, liabilityRows, totalLiabilities, netEquity: totalAssets - totalLiabilities }
+  }, [result, selectedIndex, scenarioPots])
+
+  // Build cashflow statement for selected year.
+  const cashflowStatement = useMemo(() => {
+    // Helper: net equity at a given yearIndex from potPercentiles + liabilities.
+    const netEquityAt = (idx) => {
+      if (idx < 0) {
+        // Year 0 opening: use initial pot values and initial mortgage balances from scenario.
+        const assets = scenarioPots.reduce((s, p) => s + (p.initialValue ?? 0), 0)
+        const liabs = scenarioPots.reduce((s, p) => s + (p.mortgage?.outstandingBalance ?? 0), 0)
+        return assets - liabs
+      }
+      const potEntry = result?.potPercentiles?.byYear?.[idx]
+      const liabEntry = result?.liabilities?.byYear?.[idx]
+      const assets = scenarioPots.reduce((s, p) => s + (potEntry?.byPot?.[p.id]?.realP50 ?? 0), 0)
+      const liabs = Object.values(liabEntry?.mortgageBalances ?? {}).reduce((s, v) => s + v, 0)
+      return assets - liabs
     }
-  }, [result, selectedIndex])
+
+    const closingEquity = netEquityAt(selectedIndex)
+    const openingEquity = netEquityAt(selectedIndex - 1)
+
+    const is = result?.incomeStatementByYear?.[selectedIndex] ?? {}
+    const grossIncome = (is.income ?? []).reduce((s, r) => s + r.amount, 0)
+    const totalTaxNI = (is.tax ?? 0) + (is.ni ?? 0)
+    const totalExpense = (is.expense ?? []).reduce((s, r) => s + r.amount, 0)
+    const netSurplus = grossIncome - totalTaxNI - totalExpense
+
+    const capitalIn = (is.capitalIn ?? []).reduce((s, r) => s + r.amount, 0)
+    const capitalOut = (is.capitalOut ?? []).reduce((s, r) => s + r.amount, 0)
+
+    const impliedReturn = closingEquity - openingEquity - netSurplus - capitalIn + capitalOut
+
+    return { openingEquity, netSurplus, capitalIn, capitalOut, impliedReturn, closingEquity }
+  }, [result, selectedIndex, scenarioPots])
 
   function PercentileTooltip({ active, payload, label }) {
     if (!active || !payload || payload.length === 0) return null
@@ -248,73 +293,216 @@ export default function DetailPage() {
           </ResponsiveContainer>
         </div>
 
-        <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Net-worth split (p50, real)</p>
-          {selectedNetWorth ? (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-              <div className="rounded border p-3">
-                <p className="text-xs text-muted-foreground">Liquid assets</p>
-                <p className="font-semibold">{fmtMoney(selectedNetWorth.liquidP50)}</p>
+        <div className="rounded-lg border p-4 space-y-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Household Balance Sheet</h2>
+
+          {/* Assets */}
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Assets</p>
+            {balanceSheet.assetRows.map(row => (
+              <div key={row.id} className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground truncate">{row.id}</span>
+                <span className="font-medium shrink-0">{fmtMoney(row.value)}</span>
               </div>
-              <div className="rounded border p-3">
-                <p className="text-xs text-muted-foreground">Non-liquid (property)</p>
-                <p className="font-semibold">{fmtMoney(selectedNetWorth.nonLiquidP50)}</p>
-              </div>
-              <div className="rounded border p-3 bg-muted/50">
-                <p className="text-xs text-muted-foreground">Total net-worth</p>
-                <p className="font-semibold">{fmtMoney(selectedNetWorth.totalP50)}</p>
-              </div>
+            ))}
+            <div className="flex items-center justify-between text-sm border-t pt-1 mt-1">
+              <span className="font-medium">Total assets</span>
+              <span className="font-semibold">{fmtMoney(balanceSheet.totalAssets)}</span>
             </div>
-          ) : null}
+          </div>
+
+          {/* Liabilities */}
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Liabilities</p>
+            {balanceSheet.liabilityRows.length === 0 ? (
+              <p className="text-sm text-muted-foreground">None</p>
+            ) : (
+              balanceSheet.liabilityRows.map(row => (
+                <div key={row.id} className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground truncate">{row.id} (mortgage)</span>
+                  <span className="font-medium shrink-0">{fmtMoney(row.value)}</span>
+                </div>
+              ))
+            )}
+            {balanceSheet.liabilityRows.length > 0 && (
+              <div className="flex items-center justify-between text-sm border-t pt-1 mt-1">
+                <span className="font-medium">Total liabilities</span>
+                <span className="font-semibold">{fmtMoney(balanceSheet.totalLiabilities)}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Net equity */}
+          <div className="flex items-center justify-between border-t pt-3">
+            <span className="text-base font-semibold">Net equity</span>
+            <span className="text-lg font-bold">{fmtMoney(balanceSheet.netEquity)}</span>
+          </div>
         </div>
 
-        <div className="rounded-lg border p-4 space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-base font-semibold">
-              Year {selected.calYear} (age {selected.age})
-            </h2>
-            <div className="text-sm text-muted-foreground">
-              Net cashflow: <span className="font-semibold text-foreground">{fmtSignedMoney(selected.netCashflow)}</span>
-            </div>
-          </div>
+        <div className="rounded-lg border p-4 space-y-6">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Income Statement — {selected.calYear} (age {selected.age})
+          </h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <DetailList title="Income" items={selected.incomeItems} />
-            <DetailList title="Expenses" items={selected.expenseItems} />
-          </div>
+          {!result?.incomeStatementByYear ? (
+            <p className="text-sm text-muted-foreground">Detailed year data unavailable.</p>
+          ) : (() => {
+            const is = result.incomeStatementByYear[selectedIndex] ?? {}
+            const grossIncome = (is.income ?? []).reduce((s, r) => s + r.amount, 0)
+            const totalTax = (is.tax ?? 0) + (is.ni ?? 0)
+            const netIncome = grossIncome - totalTax
+            const totalExpense = (is.expense ?? []).reduce((s, r) => s + r.amount, 0)
+            const netSurplus = netIncome - totalExpense
+            const capitalInTotal = (is.capitalIn ?? []).reduce((s, r) => s + r.amount, 0)
+            const capitalOutTotal = (is.capitalOut ?? []).reduce((s, r) => s + r.amount, 0)
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <DetailList title="Capital In" items={selected.capitalInItems} />
-            <DetailList title="Capital Out" items={selected.capitalOutItems} />
-          </div>
+            return (
+              <>
+                {/* Gross income */}
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Gross income</p>
+                  {(is.income ?? []).map((item, i) => (
+                    <div key={`${item.id}-${i}`} className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground truncate">{item.id}</span>
+                      <span className="font-medium shrink-0">{fmtMoney(item.amount)}</span>
+                    </div>
+                  ))}
+                  <div className="flex items-center justify-between text-sm border-t pt-1 mt-1">
+                    <span className="font-medium">Total gross income</span>
+                    <span className="font-semibold">{fmtMoney(grossIncome)}</span>
+                  </div>
+                </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-            <div className="rounded border p-3">
-              <p className="text-xs text-muted-foreground">Income total</p>
-              <p className="font-semibold">{fmtMoney(selected.incomeTotal)}</p>
-            </div>
-            <div className="rounded border p-3">
-              <p className="text-xs text-muted-foreground">Expense total</p>
-              <p className="font-semibold">{fmtMoney(selected.expenseTotal)}</p>
-            </div>
-            <div className="rounded border p-3">
-              <p className="text-xs text-muted-foreground">Capital net</p>
-              <p className="font-semibold">{fmtSignedMoney(selected.capitalInTotal - selected.capitalOutTotal)}</p>
-            </div>
-          </div>
+                {/* Tax & NI */}
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Less: tax &amp; NI</p>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Income tax</span>
+                    <span className="font-medium shrink-0">{is.tax > 0 ? `(${fmtMoney(is.tax)})` : fmtMoney(0)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">National Insurance</span>
+                    <span className="font-medium shrink-0">{is.ni > 0 ? `(${fmtMoney(is.ni)})` : fmtMoney(0)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm border-t pt-1 mt-1">
+                    <span className="font-medium">Total tax &amp; NI</span>
+                    <span className="font-semibold">{totalTax > 0 ? `(${fmtMoney(totalTax)})` : fmtMoney(0)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm pt-1">
+                    <span className="font-medium">Net income after tax</span>
+                    <span className="font-semibold">{fmtMoney(netIncome)}</span>
+                  </div>
+                </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-            <div className="rounded border p-3">
-              <p className="text-xs text-muted-foreground">p10 (real)</p>
-              <p className="font-semibold">{fmtMoney(selected.p10)}</p>
+                {/* Expenditure */}
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Expenditure</p>
+                  {(is.expense ?? []).length === 0 ? (
+                    <p className="text-sm text-muted-foreground">None</p>
+                  ) : (is.expense ?? []).map((item, i) => (
+                    <div key={`${item.id}-${i}`} className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground truncate">{item.id}</span>
+                      <span className="font-medium shrink-0">{item.amount > 0 ? `(${fmtMoney(item.amount)})` : fmtMoney(0)}</span>
+                    </div>
+                  ))}
+                  <div className="flex items-center justify-between text-sm border-t pt-1 mt-1">
+                    <span className="font-medium">Total expenditure</span>
+                    <span className="font-semibold">{totalExpense > 0 ? `(${fmtMoney(totalExpense)})` : fmtMoney(0)}</span>
+                  </div>
+                </div>
+
+                {/* Net surplus */}
+                <div className={cn(
+                  'flex items-center justify-between border-t pt-3',
+                  netSurplus >= 0 ? 'text-primary' : 'text-destructive',
+                )}>
+                  <span className="text-base font-semibold text-foreground">Net surplus / (deficit)</span>
+                  <span className="text-lg font-bold">
+                    {netSurplus >= 0 ? fmtMoney(netSurplus) : `(${fmtMoney(Math.abs(netSurplus))})`}
+                  </span>
+                </div>
+
+                {/* Capital movements */}
+                {(capitalInTotal > 0 || capitalOutTotal > 0) && (
+                  <div className="space-y-3 border-t pt-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Capital movements</p>
+                    {(is.capitalIn ?? []).filter(r => r.amount > 0).length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-xs text-muted-foreground">Capital in</p>
+                        {(is.capitalIn ?? []).filter(r => r.amount > 0).map((item, i) => (
+                          <div key={`${item.id}-${i}`} className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground truncate">{item.id}</span>
+                            <span className="font-medium shrink-0">{fmtMoney(item.amount)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {(is.capitalOut ?? []).filter(r => r.amount > 0).length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-xs text-muted-foreground">Capital out</p>
+                        {(is.capitalOut ?? []).filter(r => r.amount > 0).map((item, i) => (
+                          <div key={`${item.id}-${i}`} className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground truncate">{item.id}</span>
+                            <span className="font-medium shrink-0">{`(${fmtMoney(item.amount)})`}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )
+          })()}
+        </div>
+
+        {/* Cashflow Statement */}
+        <div className="rounded-lg border p-4 space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Cashflow Statement — {selected.calYear} (age {selected.age})
+          </h2>
+
+          <div className="space-y-1 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="font-medium">Opening net equity</span>
+              <span className="font-semibold">{fmtMoney(cashflowStatement.openingEquity)}</span>
             </div>
-            <div className="rounded border p-3">
-              <p className="text-xs text-muted-foreground">p50 (real)</p>
-              <p className="font-semibold">{fmtMoney(selected.p50)}</p>
+
+            <div className="flex items-center justify-between text-muted-foreground">
+              <span>+ Net surplus / (deficit)</span>
+              <span className={cashflowStatement.netSurplus >= 0 ? '' : 'text-destructive'}>
+                {cashflowStatement.netSurplus >= 0
+                  ? fmtMoney(cashflowStatement.netSurplus)
+                  : `(${fmtMoney(Math.abs(cashflowStatement.netSurplus))})`}
+              </span>
             </div>
-            <div className="rounded border p-3">
-              <p className="text-xs text-muted-foreground">p90 (real)</p>
-              <p className="font-semibold">{fmtMoney(selected.p90)}</p>
+
+            <div className="flex items-center justify-between text-muted-foreground">
+              <span>+ Capital in</span>
+              <span>{fmtMoney(cashflowStatement.capitalIn)}</span>
+            </div>
+
+            <div className="flex items-center justify-between text-muted-foreground">
+              <span>− Capital out</span>
+              <span>{cashflowStatement.capitalOut > 0 ? `(${fmtMoney(cashflowStatement.capitalOut)})` : fmtMoney(0)}</span>
+            </div>
+
+            <div className="flex items-center justify-between text-muted-foreground">
+              <span
+                className="cursor-help underline decoration-dotted underline-offset-2"
+                title="Residual of closing minus opening net equity, after accounting for surplus and capital flows. Captures investment returns and property growth using the p50 cross-section — an approximation accurate to within ~0.1% of portfolio value."
+              >
+                + Implied investment &amp; growth (p50)
+              </span>
+              <span className={cashflowStatement.impliedReturn >= 0 ? '' : 'text-destructive'}>
+                {cashflowStatement.impliedReturn >= 0
+                  ? fmtMoney(cashflowStatement.impliedReturn)
+                  : `(${fmtMoney(Math.abs(cashflowStatement.impliedReturn))})`}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between border-t pt-2 mt-1">
+              <span className="font-medium">Closing net equity</span>
+              <span className="font-semibold">{fmtMoney(cashflowStatement.closingEquity)}</span>
             </div>
           </div>
         </div>

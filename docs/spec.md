@@ -42,24 +42,75 @@ Solve endpoints run 2,000 paths per search iteration for speed.
 
 **Solve for ages** (`POST /solve/ages`): binary search over a retirement age offset window (0–20 years from a floor) to find the earliest ages at which a given monthly income meets the solvency target. All people's ages advance together to preserve the gap between them.
 
-### Tax approximation
+### Tax and NI approximation
 
-The system includes a UK-style income tax approximation for planning-grade accuracy. Income items marked as `taxable: true` are subject to:
+The system includes UK-style income tax and employee National Insurance (NI) approximations for planning-grade accuracy (±5% of real liability for typical PAYE scenarios).
 
-- Progressive tax bands defined in `server/config/simulation.json` (default: 0% up to personal allowance, 20% / 40% / 45% bands)
-- Personal allowance taper: if income exceeds the threshold, the allowance reduces by £0.50 per £1 above
-- Tax is estimated year-by-year and reported in debug output
+**Income tax** — income items marked `taxable: true` are subject to progressive UK income tax:
+- Progressive bands defined in `server/config/simulation.json` (0% personal allowance, then 20% / 40% / 45%)
+- Personal allowance taper: allowance reduces by £0.50 per £1 above the taper threshold (default £100k)
+- Tax is computed per person when an income item has `owner`, then summed to household total and injected as a cashflow expense
+- Income items without `owner` remain household-level and are taxed in a pooled bucket (backward compatibility)
 
-**Non-taxable income** (e.g., ISA withdrawals, investment income already taxed) defaults to `taxable: false`.
+**Employee NI (Class 1)** — income items marked `employmentIncome: true` are also subject to employee NI:
+- 2025/26 bands: 0% up to £12,570; 8% on £12,570–£50,270; 2% above £50,270
+- NI is computed per person using owner-grouped employment income, then summed and injected as a separate cashflow expense
+- Employer NI is not modeled (employer-side cost, not part of personal cashflow)
 
-Tax estimates are directional; they do not account for dividend allowance, capital gains treatment, National Insurance, or other complex tax rules. They are suitable for household planning discussions, not filing returns.
+**Employer pension contributions** — per income line, an optional employer pension contribution can be specified:
+- As a percentage of gross income (`employerPensionPct`) or a fixed annual amount (`employerPensionAnnual`)
+- Fixed amount wins if both are present
+- Contribution is routed directly to the named pension pot (`employerPensionPotId`) each year the income is active
+- Net effect on primary pot: zero (the amount flows in as non-taxable income and immediately out to pension)
+
+**Employee pension relief-at-source** — surplus cash routed to pension pots is treated as a net employee contribution:
+- The pension pot receives the gross amount: `net × 1.25` (HMRC adds 25% basic-rate top-up)
+- Additional higher/additional-rate relief is applied against the year's tax liability: `grossContribution × max(0, marginalRate − 0.20)`
+- Tax liability is floored at zero after relief
+
+### Property, mortgage, and BTL model
+
+Property remains a non-liquid asset class in net worth, now with optional first-class mortgage/BTL fields on each property pot.
+
+- `mortgage`: `outstandingBalance`, `mortgageType` (`repayment` or `interestOnly`), `interestRate`, optional `annualPayment`, optional overpayments
+- `monthlyRent` and `monthlyExpenses` for BTL cashflow modeling
+
+Yearly behavior:
+- BTL rent is added as income cashflow
+- BTL operating costs are added as expense cashflow
+- Mortgage payments are added as expense cashflow and auto-stop once balance reaches zero
+- For interest-only mortgages, principal stays flat unless explicit overpayments are provided
+- BTL taxable approximation is computed as `annualRent - annualExpenses - annualMortgagePayments`
+- A simple mortgage-interest tax credit is applied: `0.20 × annualInterestPaid`, reducing tax liability (floored at zero)
+
+Inflation treatment:
+- Rent and operating expenses are entered in today's money and inflated via the same yearly inflation model as other schedule cashflows
+- Mortgage balances are tracked in real terms (today's money basis) in adapter debug output
+
+### Depreciating assets
+
+The model supports a non-liquid `depreciating` pot type (for cars and similar assets):
+
+- Deterministic value decline each year via `annualDepreciationPct`
+- No volatility and no stochastic return sampling for this type
+- Included in non-liquid and total net-worth outputs
+- Excluded from liquid-solvency checks
+- Can be sold with `capitalEvents.fromPot`; optional `haircut` models discounted sale proceeds
+
+The model is intentionally **pessimistic**: NI is applied to full gross salary without salary sacrifice reduction, and no minor reliefs (marriage allowance, blind person's allowance) are modeled. This is the correct bias for retirement planning.
+
+**Non-taxable income** (e.g., ISA withdrawals) defaults to `taxable: false, employmentIncome: false`.
+
+Tax and NI amounts appear in debug output (`resolvedYears[y].tax` and `resolvedYears[y].ni`).
+
+Known limitations: salary sacrifice, dividend/CGT mix, pension carry-forward, Scottish rates, employer NI.
 
 ### Net-worth split
 
 The simulation returns three net-worth perspectives for each year:
 
 - **Liquid**: investments and cash pots (spendable, available on demand)
-- **Non-liquid**: property pots (not immediately accessible; included for household wealth context)
+- **Non-liquid**: property and depreciating pots (not immediately accessible; included for household wealth context)
 - **Total**: sum of liquid and non-liquid
 
 This split prevents late-life outcomes appearing as insolvency when substantial property equity exists.

@@ -11,6 +11,9 @@ function sampleStandardNormal() {
   return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
 }
 
+// Backward-compatible alias used by existing tests.
+const sampleNormal = sampleStandardNormal;
+
 /**
  * Converts arithmetic mean and standard deviation of the annual return factor
  * (1 + r) into log-normal parameters (μ_ln, σ_ln).
@@ -24,6 +27,9 @@ function lognormalFromArithmetic(mean, stdDev) {
   const muLn = Math.log(1 + mean) - sigmaLn2 / 2;
   return { muLn, sigmaLn };
 }
+
+// Backward-compatible alias used by existing tests.
+const logNormalParams = lognormalFromArithmetic;
 
 /**
  * Linear interpolation percentile from a sorted array.
@@ -61,6 +67,27 @@ function allPercentiles(arr) {
     result[p - 1] = percentile(sorted, p);
   }
   return result;
+}
+
+/**
+ * Linear interpolation for solvent probability at an arbitrary age.
+ */
+function interpolateSolventAt(table, targetAge) {
+  if (!Array.isArray(table) || table.length === 0) return null;
+  if (targetAge <= table[0].age) return table[0].probabilitySolvent;
+  if (targetAge >= table[table.length - 1].age) return table[table.length - 1].probabilitySolvent;
+
+  for (let i = 1; i < table.length; i++) {
+    const prev = table[i - 1];
+    const next = table[i];
+    if (targetAge === next.age) return next.probabilitySolvent;
+    if (targetAge < next.age) {
+      const t = (targetAge - prev.age) / (next.age - prev.age);
+      return prev.probabilitySolvent + t * (next.probabilitySolvent - prev.probabilitySolvent);
+    }
+  }
+
+  return table[table.length - 1].probabilitySolvent;
 }
 
 /**
@@ -102,11 +129,14 @@ function sampleReturnFactor(model, type, year, rng) {
 }
 
 module.exports = {
+  sampleNormal,
   sampleStandardNormal,
+  logNormalParams,
   lognormalFromArithmetic,
   percentile,
   summaryPercentiles,
   allPercentiles,
+  interpolateSolventAt,
   buildReturnModel,
   sampleInflationFactor,
   sampleReturnFactor,

@@ -263,13 +263,13 @@ describe('simulate', () => {
     assert.equal(result.netWorthPercentiles.byAge.length, 40)
   })
 
-  it('netWorthPercentiles: each entry has liquid, nonLiquid, and total sub-objects', () => {
+  it('netWorthPercentiles: each entry has liquid, nonLiquid, and total sub-objects with real arrays only', () => {
     const input = buildSimple({ initialValue: 300_000, expensePerYear: 20000, totalYears: 40 })
     const result = simulate(input, config)
     const entry = result.netWorthPercentiles.byAge[0]
-    assert.ok(entry.liquid && entry.liquid.nominal && entry.liquid.real)
-    assert.ok(entry.nonLiquid && entry.nonLiquid.nominal && entry.nonLiquid.real)
-    assert.ok(entry.total && entry.total.nominal && entry.total.real)
+    assert.ok(entry.liquid && Array.isArray(entry.liquid.real) && !entry.liquid.nominal)
+    assert.ok(entry.nonLiquid && Array.isArray(entry.nonLiquid.real) && !entry.nonLiquid.nominal)
+    assert.ok(entry.total && Array.isArray(entry.total.real) && !entry.total.nominal)
   })
 
   it('netWorthPercentiles: total ≈ liquid + nonLiquid (p50 check)', () => {
@@ -291,15 +291,244 @@ describe('simulate', () => {
     }
     const result = simulate(input, config)
     const entry = result.netWorthPercentiles.byAge[20]
-    const liquidP50 = entry.liquid.nominal[49]
-    const nonLiquidP50 = entry.nonLiquid.nominal[49]
-    const totalP50 = entry.total.nominal[49]
+    const liquidP50 = entry.liquid.real[49]
+    const nonLiquidP50 = entry.nonLiquid.real[49]
+    const totalP50 = entry.total.real[49]
     const sum = liquidP50 + nonLiquidP50
     // Allow ~5% tolerance due to independent percentile calculations across simulation paths
     const tolerance = totalP50 * 0.05
     assert.ok(
       Math.abs(totalP50 - sum) <= tolerance,
       `total p50 (${totalP50}) should ≈ liquid p50 (${liquidP50}) + nonLiquid p50 (${nonLiquidP50}), diff: ${Math.abs(totalP50 - sum)}, tolerance: ${tolerance}`,
+    )
+  })
+})
+
+// --- v0.21: grossUpFactor, tax/NI as expense, employer pension routing ---
+
+describe('surplus grossUpFactor (relief-at-source)', () => {
+  it('grossUpFactor 1.25 causes pension pot to receive more than net contribution', () => {
+    const constRng = () => 0
+    const totalYears = 6
+    const retirementYear = 3
+    const makeYears = (withGrossUp) => Array.from({ length: totalYears }, (_, y) => ({
+      income:      y < retirementYear ? [{ id: 'salary', amount: 60000 }] : [],
+      expense:     [{ id: 'spending', amount: 20000 }],
+      capitalOut:  [],
+      capitalIn:   [],
+      surplusOrder: y < retirementYear
+        ? [{ potId: 'pension', maxAmount: 30000, ...(withGrossUp ? { grossUpFactor: 1.25 } : {}) }]
+        : [],
+      drawOrder: ['pension'],
+    }))
+    const base = {
+      pots: [
+        makePot('cash',    'cash',        200_000),
+        makePot('pension', 'investments', 0),
+      ],
+      primaryPot: 'cash',
+      retirementYear,
+    }
+    const withGrossUp    = simulate({ ...base, years: makeYears(true) },  config, constRng)
+    const withoutGrossUp = simulate({ ...base, years: makeYears(false) }, config, constRng)
+    assert.ok(
+      withGrossUp.probabilityOfRuin <= withoutGrossUp.probabilityOfRuin,
+      `grossUpFactor 1.25 should improve or match solvency vs no gross-up`,
+    )
+  })
+
+  it('grossUpFactor 1.0 (explicit) behaves identically to no grossUpFactor field', () => {
+    const constRng = () => 0
+    const totalYears = 6
+    const retirementYear = 3
+    const makeYears = (factor) => Array.from({ length: totalYears }, (_, y) => ({
+      income:      y < retirementYear ? [{ id: 'salary', amount: 60000 }] : [],
+      expense:     [{ id: 'spending', amount: 20000 }],
+      capitalOut:  [],
+      capitalIn:   [],
+      surplusOrder: y < retirementYear
+        ? [{ potId: 'pension', maxAmount: 20000, ...(factor != null ? { grossUpFactor: factor } : {}) }]
+        : [],
+      drawOrder: ['pension'],
+    }))
+    const base = { pots: [makePot('cash', 'cash', 200_000), makePot('pension', 'investments', 0)], primaryPot: 'cash', retirementYear }
+    const r1 = simulate({ ...base, years: makeYears(1.0) }, config, constRng)
+    const r2 = simulate({ ...base, years: makeYears(null) }, config, constRng)
+    assert.deepEqual(r1.probabilityOfRuin, r2.probabilityOfRuin)
+  })
+})
+
+describe('v0.22 engine features', () => {
+  it('depreciating pot loses value deterministically at annualDepreciationPct', () => {
+    const constRng = () => 0
+    const input = {
+      pots: [
+        { id: 'cash', type: 'cash', initialValue: 0 },
+        { id: 'car', type: 'depreciating', initialValue: 100000, annualDepreciationPct: 0.10 },
+      ],
+      primaryPot: 'cash',
+      retirementYear: 1,
+      years: Array.from({ length: 2 }, () => ({
+        income: [],
+        expense: [],
+        capitalOut: [],
+        capitalIn: [],
+        surplusOrder: [],
+        drawOrder: ['cash'],
+      })),
+    }
+
+    const result = simulate(input, config, constRng)
+    const year1 = result.netWorthPercentiles.byAge[0].nonLiquid.real[49]
+    const year2 = result.netWorthPercentiles.byAge[1].nonLiquid.real[49]
+    assert.equal(year1, 87806)
+    assert.equal(year2, 77099)
+  })
+
+  it('capitalIn haircut transfers discounted proceeds from source pot', () => {
+    const constRng = () => 0
+    const input = {
+      pots: [
+        { id: 'cash', type: 'cash', initialValue: 0 },
+        { id: 'car', type: 'depreciating', initialValue: 100000, annualDepreciationPct: 0 },
+      ],
+      primaryPot: 'cash',
+      retirementYear: 1,
+      years: [
+        {
+          income: [],
+          expense: [],
+          capitalOut: [],
+          capitalIn: [{ id: 'sell_car', fromPot: 'car', haircut: 0.2 }],
+          surplusOrder: [],
+          drawOrder: ['cash'],
+        },
+      ],
+    }
+
+    const result = simulate(input, config, constRng)
+    const liquidP50 = result.netWorthPercentiles.byAge[0].liquid.real[49]
+    const nonLiquidP50 = result.netWorthPercentiles.byAge[0].nonLiquid.real[49]
+    assert.equal(liquidP50, 81172)
+    assert.equal(nonLiquidP50, 19512)
+  })
+
+  it('potPercentiles: response includes byYear entries with realP50 per pot', () => {
+    const constRng = () => 0
+    const input = {
+      pots: [
+        { id: 'cash', type: 'cash', initialValue: 50000 },
+        { id: 'pension', type: 'investments', initialValue: 100000 },
+      ],
+      primaryPot: 'cash',
+      retirementYear: 2,
+      years: Array.from({ length: 4 }, () => ({
+        income: [],
+        expense: [],
+        capitalOut: [],
+        capitalIn: [],
+        surplusOrder: [],
+        drawOrder: ['cash', 'pension'],
+      })),
+    }
+    const result = simulate(input, config, constRng)
+    assert.ok(result.potPercentiles, 'potPercentiles should exist')
+    assert.ok(Array.isArray(result.potPercentiles.byYear), 'byYear should be an array')
+    assert.equal(result.potPercentiles.byYear.length, 4)
+    const entry = result.potPercentiles.byYear[0]
+    assert.ok(entry.byPot, 'byPot should exist')
+    assert.ok('cash' in entry.byPot, 'cash pot should be present')
+    assert.ok('pension' in entry.byPot, 'pension pot should be present')
+    assert.ok(typeof entry.byPot.cash.realP50 === 'number', 'realP50 should be a number')
+  })
+})
+
+describe('tax and NI as expense items', () => {
+  it('adding a tax expense item reduces primary pot vs no tax', () => {
+    const constRng = () => 0
+    const totalYears = 20
+    const retirementYear = 5
+    const makeYears = (withTax) => Array.from({ length: totalYears }, (_, y) => ({
+      income:      y < retirementYear ? [{ id: 'salary', amount: 60000 }] : [],
+      expense:     [
+        { id: 'spending', amount: 20000 },
+        ...(withTax && y < retirementYear ? [{ id: 'income_tax', amount: 12000 }] : []),
+      ],
+      capitalOut:  [],
+      capitalIn:   [],
+      surplusOrder: [],
+      drawOrder:   ['portfolio'],
+    }))
+    const base = { pots: [makePot('portfolio', 'investments', 300_000)], primaryPot: 'portfolio', retirementYear }
+    const withTax    = simulate({ ...base, years: makeYears(true) },  config, constRng)
+    const withoutTax = simulate({ ...base, years: makeYears(false) }, config, constRng)
+    assert.ok(
+      withTax.probabilityOfRuin >= withoutTax.probabilityOfRuin,
+      `tax expense should not improve solvency`,
+    )
+  })
+
+  it('adding an NI expense item further reduces solvency vs tax only', () => {
+    const constRng = () => 0
+    const totalYears = 20
+    const retirementYear = 5
+    const makeYears = (withNI) => Array.from({ length: totalYears }, (_, y) => ({
+      income:      y < retirementYear ? [{ id: 'salary', amount: 60000 }] : [],
+      expense:     [
+        { id: 'spending', amount: 20000 },
+        { id: 'income_tax', amount: 12000 },
+        ...(withNI && y < retirementYear ? [{ id: 'ni', amount: 3000 }] : []),
+      ],
+      capitalOut:  [],
+      capitalIn:   [],
+      surplusOrder: [],
+      drawOrder:   ['portfolio'],
+    }))
+    const base = { pots: [makePot('portfolio', 'investments', 300_000)], primaryPot: 'portfolio', retirementYear }
+    const withNI    = simulate({ ...base, years: makeYears(true) },  config, constRng)
+    const withoutNI = simulate({ ...base, years: makeYears(false) }, config, constRng)
+    assert.ok(
+      withNI.probabilityOfRuin >= withoutNI.probabilityOfRuin,
+      `NI expense should not improve solvency`,
+    )
+  })
+
+  it('employer pension contribution pattern: income + capitalOut → primary pot unchanged, pension grows', () => {
+    const constRng = () => 0
+    const totalYears = 6
+    const retirementYear = 3
+    // Employer adds 10000 as non-taxable income then routes same amount out to pension.
+    // Primary pot net change from employer contribution = 0.
+    // Pension receives 10000 per year.
+    const yearsWithEmployer = Array.from({ length: totalYears }, (_, y) => ({
+      income:      y < retirementYear
+        ? [{ id: 'salary', amount: 50000 }, { id: 'emp_pension', amount: 10000, taxable: false }]
+        : [],
+      expense:     [{ id: 'spending', amount: 20000 }],
+      capitalOut:  y < retirementYear ? [{ id: 'emp_pension', toPot: 'pension', amount: 10000 }] : [],
+      capitalIn:   [],
+      surplusOrder: [],
+      drawOrder:   ['pension'],
+    }))
+    const yearsWithout = Array.from({ length: totalYears }, (_, y) => ({
+      income:      y < retirementYear ? [{ id: 'salary', amount: 50000 }] : [],
+      expense:     [{ id: 'spending', amount: 20000 }],
+      capitalOut:  [],
+      capitalIn:   [],
+      surplusOrder: [],
+      drawOrder:   ['pension'],
+    }))
+    const base = {
+      pots: [makePot('cash', 'cash', 100_000), makePot('pension', 'investments', 0)],
+      primaryPot: 'cash',
+      retirementYear,
+    }
+    const withEmployer = simulate({ ...base, years: yearsWithEmployer }, config, constRng)
+    const without      = simulate({ ...base, years: yearsWithout      }, config, constRng)
+    // Employer routing should improve or match solvency (more assets available in drawdown).
+    assert.ok(
+      withEmployer.probabilityOfRuin <= without.probabilityOfRuin,
+      `employer pension routing should not worsen solvency`,
     )
   })
 })

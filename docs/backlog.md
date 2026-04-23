@@ -8,6 +8,8 @@ Items move here when deferred from a completed iteration. They move out when pic
 
 ## UI
 
+- **Statement-style reporting outputs** — property explicit breakout in net-worth, yearly income/expense/tax totals, after-tax income line, per-pot balance percentiles by year, transfer/contribution visibility (pension and ISA totals). Tax should appear as a deduction from income rather than an expense item. Deferred from v0.22.
+
 - **Panel 3 cards are not interactive** — clicking a scenario card does not load it into Panel 1 (deferred from v0.8)
 - **`/scenarios` page not linked from the main wizard** — must be navigated to directly (deferred from v0.8)
 - **Panel 4 — Adjust your plan** — contributions review panel; not yet started (deferred from v0.6)
@@ -21,6 +23,7 @@ Items move here when deferred from a completed iteration. They move out when pic
 
 ## Simulation model
 
+- **Schema refactor: pots -> assets/liabilities domain model** — evolve JSON from pot-centric structure toward explicit assets/liabilities while keeping a backward-compatible adapter for one transition iteration.
 - **Annual contribution growth** — contributions are currently fixed nominal amounts; no growth rate (deferred repeatedly from v0.3)
 - **Other income streams** — rental income, part-time work, defined benefit pensions (deferred repeatedly from v0.4)
 - **Tax modelling** — ISA vs pension drawdown, income tax thresholds, LTA (lifetime allowance) (deferred from v0.4)

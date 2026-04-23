@@ -253,3 +253,23 @@ Decisions recorded in version order. Each entry explains what was decided and wh
 ### Solve endpoints stubbed 501 (deferred to future iteration)
 **Decided:** `POST /solve/income` and `POST /solve/ages` return `501 Not Implemented` in v0.16.
 **Rationale:** The solve endpoints were implemented against the old phase-split model. Rebuilding them against the new cashflow adapter requires careful design of what "solve for income" means when income is modelled per-year with schedules. This work is deferred until the v0.16 adapter is stable and in use.
+
+---
+
+## v0.22
+
+### Per-person tax/NI via owner buckets in adapter
+**Decided:** Tax and NI are computed per owner bucket (`owner` on income items), then summed to household annual liabilities. Items with no owner are handled in a household fallback bucket.
+**Rationale:** UK tax treatment is fundamentally person-based. Owner buckets deliver materially improved accuracy while preserving backward compatibility for existing scenarios.
+
+### Property remains in `pots` model with mortgage/BTL extensions
+**Decided:** Property features are added as optional fields on existing property pots (`mortgage`, `monthlyRent`, `monthlyExpenses`) rather than introducing a new top-level schema object in v0.22.
+**Rationale:** Keeps the iteration focused on calculation accuracy and minimizes migration risk. A broader JSON/domain refactor is deferred to a follow-on iteration.
+
+### Pragmatic BTL tax approximation accepted
+**Decided:** BTL taxable contribution uses `rent - expenses - mortgage payments` and applies a simple mortgage-interest tax credit (`20% × annualInterestPaid`) against tax liability.
+**Rationale:** This is intentionally simpler than full Section 24 accounting but aligns with acceptable planning error tolerance while still capturing the first-order mortgage-interest effect.
+
+### Depreciating assets modeled as deterministic non-liquid pots
+**Decided:** Added a `depreciating` pot type with deterministic annual depreciation (`annualDepreciationPct`) and no stochastic return volatility.
+**Rationale:** Vehicles and similar assets are better represented by deterministic depreciation than investment-style stochastic returns; treating them as non-liquid keeps solvency logic correct.

@@ -662,7 +662,7 @@ export default function ScenarioScreen({ scenario, onScenarioLoad }) {
                   <button
                     className="text-xs text-primary hover:underline underline-offset-2"
                     onClick={() => navigate('/detail', {
-                      state: { result: lastResult, people, capitalEvents, retirementAges, monthlyIncome },
+                      state: { result: lastResult, people, capitalEvents, retirementAges, monthlyIncome, pots: scenario?.pots ?? [] },
                     })}
                   >
                     View detailed breakdown →

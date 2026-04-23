@@ -1,11 +1,11 @@
 {
-  "label": "Nigel and Mimi — base case",
+  "label": "Nigel and Mimi — worst case",
   "pots": [
     { "id": "pension_nigel", "type": "investments", "owner": "nigel", "accessFromAge": 57, "initialValue": 330000 },
     { "id": "pension_mimi",  "type": "investments", "owner": "mimi",  "accessFromAge": 57, "initialValue": 40000  },
     { "id": "isa_nigel",     "type": "investments", "owner": "nigel", "accessFromAge": 0,  "initialValue": 61000  },
     { "id": "isa_mimi",      "type": "investments", "owner": "mimi",  "accessFromAge": 0,  "initialValue": 50000  },
-    { "id": "cash_nigel",    "type": "cash", "owner": "nigel",  "accessFromAge": 0,  "initialValue": 1000  },
+    { "id": "cash_nigel",    "type": "cash", "owner": "nigel",  "accessFromAge": 0,  "initialValue": 0  },
     {
       "id": "btl_tequila_wharf",
       "type": "property",
@@ -38,7 +38,7 @@
         "outstandingBalance": 415000,
         "mortgageType": "repayment",
         "interestRate": 0.0434,
-        "annualPayment": 50000
+        "annualPayment": 40000
       }
     }
   ],
@@ -64,7 +64,7 @@
       "id": "nigel_salary_vg",
       "annualAmount": 178000,
       "fromYear": 0,
-      "toYear": 10,
+      "toYear": 1,
       "taxable": true,
       "employmentIncome": true,
       "owner": "nigel",
@@ -73,9 +73,9 @@
     },
     {
       "id": "nigel_bonus_vg",
-      "annualAmount": 80000,
+      "annualAmount": 60000,
       "fromYear": 0,
-      "toYear": 10,
+      "toYear": 1,
       "taxable": true,
       "employmentIncome": true,
       "owner": "nigel"
@@ -84,20 +84,20 @@
       "id": "nigel_pension_redirect_vg",
       "annualAmount": 15000,
       "fromYear": 0,
-      "toYear": 10,
+      "toYear": 1,
       "taxable": true,
       "employmentIncome": true,
       "owner": "nigel"
     },
     {
       "id": "nigel_salary_low",
-      "annualAmount": 50000,
-      "fromYear": 10,
+      "annualAmount": 40000,
+      "fromYear": 1,
       "toYear": 15,
       "taxable": true,
       "employmentIncome": true,
       "owner": "nigel",
-      "employerPensionAnnual": 5000,
+      "employerPensionAnnual": 2000,
       "employerPensionPotId": "pension_nigel"
     },
     {
@@ -113,8 +113,8 @@
     }
   ],
   "expenseSchedule": [
-    { "id": "non_housing_with_kids",  "annualAmount": 72000, "fromYear": 0, "toYear": 18 },
-    { "id": "non_housing_post_kids",  "annualAmount": 60000, "fromYear": 18 }
+    { "id": "non_housing_with_kids",  "annualAmount": 48000, "fromYear": 0, "toYear": 18 },
+    { "id": "non_housing_post_kids",  "annualAmount": 36000, "fromYear": 18 }
   ],
   "surplusStrategy": [
     { "potId": "pension_nigel", "annualCap": 24000 },
